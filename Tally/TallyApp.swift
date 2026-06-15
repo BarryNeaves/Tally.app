@@ -25,7 +25,7 @@ struct TallyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            UkTaxTrackerView()
+            UkExpenseTrackerView()
         }
         .modelContainer(sharedModelContainer)
     }

@@ -8,6 +8,7 @@ import GoogleSignIn
 import FacebookLogin
 import LocalAuthentication
 import CryptoKit
+import UniformTypeIdentifiers
 
 // MARK: - Models
 
@@ -22,6 +23,21 @@ struct Entry: Identifiable, Codable, Equatable {
     var type: EntryType
     var category: Category
     var recurrence: Recurrence?
+    var duration: Duration?
+    var attachments: [PDFAttachment]?
+    var currency: Currency?
+
+    /// Resolved currency — older entries without the field default to GBP.
+    var resolvedCurrency: Currency { currency ?? .gbp }
+
+    /// `amount` converted to GBP. `usdRate` is the GBP/USD quote (USD per 1 GBP),
+    /// so converting a USD amount to GBP is `amount / usdRate`.
+    func amountInGBP(usdRate: Double) -> Double {
+        switch resolvedCurrency {
+        case .gbp: amount
+        case .usd: usdRate > 0 ? amount / usdRate : amount
+        }
+    }
 }
 
 struct Category: Identifiable, Codable, Hashable {
@@ -90,6 +106,122 @@ struct Category: Identifiable, Codable, Hashable {
 
 enum Recurrence: String, Codable, CaseIterable {
     case none, weekly, fortnightly, monthly, yearly
+}
+
+/// Currency an entry is recorded in. Totals are always normalised to GBP.
+enum Currency: String, Codable, CaseIterable, Identifiable {
+    case gbp = "GBP"
+    case usd = "USD"
+
+    var id: String { rawValue }
+    var symbol: String {
+        switch self { case .gbp: "£"; case .usd: "$" }
+    }
+    var label: String {
+        switch self { case .gbp: "GBP £"; case .usd: "USD $" }
+    }
+}
+
+/// How long a one-off purchase covers (e.g. domain bought for 1 year).
+/// Distinct from `Recurrence`, which describes how often a payment repeats.
+enum Duration: String, Codable, CaseIterable, Identifiable {
+    case oneMonth   = "1 month"
+    case oneYear    = "1 year"
+    case threeYears = "3 years"
+
+    var id: String { rawValue }
+    var label: String { rawValue }
+}
+
+// MARK: - User Profile
+
+struct UserProfile: Codable, Equatable {
+    var name: String = ""
+    var niNumber: String = ""
+    var address: String = ""
+    var dateOfBirth: Date? = nil
+}
+
+// MARK: - Appearance
+
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light:  "Light"
+        case .dark:   "Dark"
+        }
+    }
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light:  .light
+        case .dark:   .dark
+        }
+    }
+}
+
+// MARK: - PDF Attachments
+
+struct PDFAttachment: Identifiable, Codable, Equatable, Hashable {
+    var id: UUID
+    /// Filename within the app's attachments directory (uuid.pdf).
+    var filename: String
+    /// Original filename for display.
+    var displayName: String
+    var dateAdded: Date
+}
+
+/// Manages PDF files copied into the app's Documents/attachments folder.
+final class AttachmentStore {
+    static let shared = AttachmentStore()
+    private init() {}
+
+    private var directory: URL {
+        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("attachments", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    func url(for attachment: PDFAttachment) -> URL {
+        directory.appendingPathComponent(attachment.filename)
+    }
+
+    /// Copy a user-picked PDF into our sandboxed attachments directory.
+    func importPDF(from sourceURL: URL) -> PDFAttachment? {
+        let id = UUID()
+        let filename = "\(id.uuidString).pdf"
+        let dest = directory.appendingPathComponent(filename)
+
+        let needsAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if needsAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: dest)
+            return PDFAttachment(
+                id: id,
+                filename: filename,
+                displayName: sourceURL.lastPathComponent,
+                dateAdded: Date()
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    func delete(_ attachment: PDFAttachment) {
+        try? FileManager.default.removeItem(at: url(for: attachment))
+    }
+
+    func deleteAll() {
+        try? FileManager.default.removeItem(at: directory)
+    }
 }
 
 // MARK: - Auth Flow
@@ -395,17 +527,18 @@ struct C {
     // Brand palette — sourced from tally.css :root tokens
     static let sage = Color(hex: "#4A7C59")           // Primary CTA, active states
     static let sageLight = Color(hex: "#6BA87A")      // Income, positive values
-    static let sagePale = Color(hex: "#EEF5F0")       // Card fills, section bg
+    static let sagePale = Color.dynamic(light: "#EEF5F0", dark: "#1F2A24") // Card fills
     static let mint = Color(hex: "#B8DFC4")           // Badges, soft borders
-    static let paper = Color(hex: "#F7F6F1")          // App background (light)
-    static let ink = Color(hex: "#1A1C18")            // Primary text
-    static let mid = Color(hex: "#4A4D46")            // Secondary text
-    static let rule = Color(hex: "#DDE0D8")           // Dividers, borders
+    // Adaptive surfaces — flip to the dark tokens from tally.css in dark mode
+    static let paper = Color.dynamic(light: "#F7F6F1", dark: "#0F1117")  // App background
+    static let ink   = Color.dynamic(light: "#1A1C18", dark: "#F0F2FF")  // Primary text
+    static let mid   = Color.dynamic(light: "#4A4D46", dark: "#7B82A0")  // Secondary text
+    static let rule  = Color.dynamic(light: "#DDE0D8", dark: "#2E3348")  // Dividers
+    static let white = Color.dynamic(light: "#FFFFFF", dark: "#1C1F2A")  // Card surface
     static let amber = Color(hex: "#D4862A")          // Tax callouts, crossbar
     static let amberPale = Color(hex: "#FFF3E0")      // Amber card background
     static let alert = Color(hex: "#E05252")          // Errors, delete, overdue
     static let usd = Color(hex: "#F7A928")            // USD accent
-    static let white = Color.white
 
     // Dark surfaces
     static let darkBase = Color(hex: "#0F1117")
@@ -449,6 +582,36 @@ extension Color {
             blue: Double(b) / 255,
             opacity: 1
         )
+    }
+
+    /// Adaptive color that resolves differently for light vs dark traits.
+    static func dynamic(light: String, dark: String) -> Color {
+        Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(hex: dark)
+                : UIColor(hex: light)
+        })
+    }
+}
+
+extension UIColor {
+    convenience init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r, g, b: UInt64
+        switch hex.count {
+        case 6:
+            r = (int >> 16) & 0xFF
+            g = (int >> 8) & 0xFF
+            b = int & 0xFF
+        default:
+            r = 0; g = 0; b = 0
+        }
+        self.init(red: CGFloat(r) / 255,
+                  green: CGFloat(g) / 255,
+                  blue: CGFloat(b) / 255,
+                  alpha: 1)
     }
 }
 
@@ -679,6 +842,43 @@ struct TallyWordmark: View {
     }
 }
 
+/// Standard page header used on every screen — wordmark + "Tax made human." strap.
+struct TallyPageHeader: View {
+    var title: String? = nil
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(spacing: T.space3) {
+            VStack(spacing: T.space2) {
+                TallyWordmark()
+                Text("Tax made human.")
+                    .font(.strapline)
+                    .foregroundColor(C.sage)
+            }
+            if title != nil || subtitle != nil {
+                VStack(alignment: .leading, spacing: T.space1) {
+                    if let title {
+                        Text(title)
+                            .font(.displayLg)
+                            .foregroundColor(C.ink)
+                    }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.bodyText)
+                            .foregroundColor(C.mid)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, T.space2)
+            }
+        }
+        .padding(.horizontal, T.space6)
+        .padding(.top, T.space5)
+        .padding(.bottom, T.space4)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Brand Style Modifiers
 
 /// Pill-shaped primary CTA — sage fill, white text, brand shadow.
@@ -769,12 +969,13 @@ extension View {
 
 // MARK: - Helper Functions
 
-func fmt(_ amount: Double) -> String {
+func fmt(_ amount: Double, currency: Currency = .gbp) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .currency
-    formatter.currencyCode = "GBP"
+    formatter.currencyCode = currency.rawValue
     formatter.maximumFractionDigits = 2
-    return formatter.string(from: NSNumber(value: amount)) ?? "£0.00"
+    let fallback = "\(currency.symbol)0.00"
+    return formatter.string(from: NSNumber(value: amount)) ?? fallback
 }
 
 func shortDate(_ date: Date) -> String {
@@ -795,20 +996,23 @@ func parseTaxCode(_ code: String) -> Int? {
 
 // MARK: - Main View
 
-struct UkTaxTrackerView: View {
+struct UkExpenseTrackerView: View {
     // Data storage
     @AppStorage("entriesData") private var entriesData: Data = Data()
     @AppStorage("taxYear") private var taxYear: Int = currentTaxYear()
     @AppStorage("taxCode") private var taxCode: String = "1257L"
     @AppStorage("usdRate") private var usdRate: Double = 1.25
+    @AppStorage("userProfileData") private var profileData: Data = Data()
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
 
     @State private var entries: [Entry] = []
     @State private var selectedTab = 0
     @State private var showEntryModal = false
+    @State private var showSettings = false
     @State private var editingEntry: Entry?
     @State private var toastMessage: String?
     @State private var toastTimer: Timer?
-    
+
     // Authentication state managed by LoginManager
     @StateObject private var loginManager = LoginManager()
 
@@ -833,11 +1037,12 @@ struct UkTaxTrackerView: View {
                         Group {
                             switch selectedTab {
                             case 0:
-                                DashboardView(entries: entries, taxYear: taxYear)
+                                DashboardView(entries: entries, taxYear: taxYear, usdRate: usdRate)
                             case 1:
                                 EntryListView(
                                     entries: entries.filter { $0.type == .expense },
                                     title: "Expenses",
+                                    usdRate: usdRate,
                                     onEdit: editEntry,
                                     onAddNew: addNewEntry
                                 )
@@ -845,6 +1050,7 @@ struct UkTaxTrackerView: View {
                                 EntryListView(
                                     entries: entries.filter { $0.type == .income },
                                     title: "Income",
+                                    usdRate: usdRate,
                                     onEdit: editEntry,
                                     onAddNew: addNewEntry
                                 )
@@ -856,8 +1062,16 @@ struct UkTaxTrackerView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .navigationTitle("UK Tax Tracker")
+                    .navigationTitle("UK Expense Tracker")
+                    .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button {
+                                showSettings = true
+                            } label: {
+                                Image(systemName: "gearshape")
+                            }
+                        }
                         ToolbarItem(placement: .navigationBarTrailing) {
                             Button(action: {
                                 addNewEntry()
@@ -869,7 +1083,15 @@ struct UkTaxTrackerView: View {
                     .tint(C.sage)
                     .onAppear(perform: loadEntries)
                     .sheet(isPresented: $showEntryModal) {
-                        EntryModalView(entry: $editingEntry, onSave: saveEntry, onCancel: cancelEntry)
+                        EntryModalView(entry: $editingEntry, usdRate: usdRate, onSave: saveEntry, onCancel: cancelEntry)
+                    }
+                    .sheet(isPresented: $showSettings) {
+                        SettingsView(
+                            profileData: $profileData,
+                            entriesData: $entriesData,
+                            appearanceMode: $appearanceMode,
+                            loginManager: loginManager
+                        )
                     }
                     .overlay {
                         if let message = toastMessage {
@@ -883,6 +1105,7 @@ struct UkTaxTrackerView: View {
                 AuthFlowView(loginManager: loginManager)
             }
         }
+        .preferredColorScheme(appearanceMode.colorScheme)
     }
 
     // MARK: - Actions
@@ -917,7 +1140,9 @@ struct UkTaxTrackerView: View {
             amount: 0.0,
             type: .expense,
             category: Category(id: UUID(), name: "General", colorName: "primary"),
-            recurrence: .none
+            recurrence: .none,
+            duration: nil,
+            attachments: nil
         )
         showEntryModal = true
     }
@@ -958,75 +1183,244 @@ struct UkTaxTrackerView: View {
 struct DashboardView: View {
     var entries: [Entry]
     var taxYear: Int
+    var usdRate: Double
+
+    private var totalIncome: Double {
+        entries.filter { $0.type == .income }
+            .map { $0.amountInGBP(usdRate: usdRate) }
+            .reduce(0, +)
+    }
+    private var totalExpenses: Double {
+        entries.filter { $0.type == .expense }
+            .map { $0.amountInGBP(usdRate: usdRate) }
+            .reduce(0, +)
+    }
+    private var profit: Double { totalIncome - totalExpenses }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Dashboard")
-                    .font(.title2)
-                    .bold()
-                    .padding(.bottom, 8)
+            VStack(spacing: 0) {
+                TallyPageHeader(title: "Dashboard", subtitle: "Tax year \(String(taxYear))/\(String(taxYear + 1))")
 
-                // Placeholder summary cards and charts
-                Text("Summary and charts will appear here.")
-                    .foregroundColor(.secondary)
-
-                // TODO: Implement dashboard UI with summaries of totals, graphs, etc.
+                VStack(spacing: T.space4) {
+                    SummaryCard(label: "Taxable profit",
+                                value: fmt(profit),
+                                accent: profit >= 0 ? C.sage : C.alert,
+                                style: .sage)
+                    HStack(spacing: T.space4) {
+                        SummaryCard(label: "Income",
+                                    value: fmt(totalIncome),
+                                    accent: C.sageLight,
+                                    style: .plain)
+                        SummaryCard(label: "Expenses",
+                                    value: fmt(totalExpenses),
+                                    accent: C.alert,
+                                    style: .plain)
+                    }
+                    if entries.isEmpty {
+                        Text("No entries yet — tap + to add your first.")
+                            .font(.bodyText)
+                            .foregroundColor(C.mid)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, T.space6)
+                    }
+                }
+                .padding(.horizontal, T.space6)
+                .padding(.bottom, T.space8)
             }
-            .padding()
         }
-        .background(C.background)
+        .background(C.paper)
+    }
+}
+
+private struct SummaryCard: View {
+    enum Style { case plain, sage, amber }
+    let label: String
+    let value: String
+    let accent: Color
+    var style: Style = .plain
+
+    private var background: Color {
+        switch style {
+        case .plain: C.white
+        case .sage: C.sagePale
+        case .amber: C.amberPale
+        }
+    }
+    private var border: Color {
+        switch style {
+        case .plain: C.rule
+        case .sage: C.mint
+        case .amber: C.amber.opacity(0.3)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space2) {
+            Text(label)
+                .font(.dataLabel)
+                .foregroundColor(C.mid)
+            Text(value)
+                .font(.heroNumber)
+                .foregroundColor(accent)
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(T.space5)
+        .background(background)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
     }
 }
 
 struct EntryListView: View {
     var entries: [Entry]
     var title: String
+    var usdRate: Double
     var onEdit: (Entry) -> Void
     var onAddNew: () -> Void
 
     var body: some View {
-        VStack {
-            if entries.isEmpty {
-                Spacer()
-                Text("No \(title.lowercased()) entries")
-                    .foregroundColor(.secondary)
-                Spacer()
-            } else {
-                List {
-                    ForEach(entries) { entry in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(entry.description)
-                                    .font(.headline)
-                                Text(shortDate(entry.date))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+        ScrollView {
+            VStack(spacing: 0) {
+                TallyPageHeader(title: title,
+                                subtitle: "\(entries.count) \(entries.count == 1 ? "entry" : "entries")")
+
+                VStack(spacing: T.space3) {
+                    if entries.isEmpty {
+                        Text("No \(title.lowercased()) yet")
+                            .font(.bodyText)
+                            .foregroundColor(C.mid)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, T.space8)
+                    } else {
+                        ForEach(entries) { entry in
+                            Button { onEdit(entry) } label: {
+                                EntryRow(entry: entry, usdRate: usdRate)
                             }
-                            Spacer()
-                            Text(fmt(entry.amount))
-                                .foregroundColor(entry.type == .expense ? C.red : C.green)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            onEdit(entry)
+                            .buttonStyle(.plain)
                         }
                     }
-                    .onDelete { indexSet in
-                        // Optional: implement deletion
+
+                    Button {
+                        onAddNew()
+                    } label: {
+                        Label("Add \(title.dropLast())", systemImage: "plus.circle.fill")
                     }
+                    .buttonStyle(TallyGhostButtonStyle())
+                    .padding(.top, T.space4)
                 }
-                .listStyle(PlainListStyle())
-            }
-            Button(action: onAddNew) {
-                Label("Add \(title.dropLast())", systemImage: "plus.circle")
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(C.primary.opacity(0.1))
-                    .cornerRadius(8)
-                    .padding([.horizontal, .bottom])
+                .padding(.horizontal, T.space6)
+                .padding(.bottom, T.space8)
             }
         }
+        .background(C.paper)
+    }
+}
+
+private struct EntryRow: View {
+    let entry: Entry
+    let usdRate: Double
+
+    private var amountColor: Color {
+        entry.type == .expense ? C.alert : C.sageLight
+    }
+    private var sign: String {
+        entry.type == .expense ? "−" : "+"
+    }
+
+    var body: some View {
+        HStack(spacing: T.space3) {
+            ZStack {
+                RoundedRectangle(cornerRadius: T.radiusSm)
+                    .fill(entry.category.color.opacity(0.18))
+                Text(String(entry.category.name.prefix(1)))
+                    .font(.system(size: T.textMd, weight: .bold))
+                    .foregroundColor(entry.category.color)
+            }
+            .frame(width: 40, height: 40)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.description.isEmpty ? entry.category.name : entry.description)
+                    .font(.system(size: T.textSm, weight: .semibold))
+                    .foregroundColor(C.ink)
+                    .lineLimit(1)
+                HStack(spacing: T.space2) {
+                    Text(shortDate(entry.date))
+                        .font(.system(size: T.textXs))
+                        .foregroundColor(C.mid)
+                    if let recurrence = entry.recurrence, recurrence != .none {
+                        TallyPill(label: recurrence.rawValue.capitalized, style: .sage)
+                    }
+                    if let duration = entry.duration {
+                        TallyPill(label: duration.label, style: .amber)
+                    }
+                    if let attachments = entry.attachments, !attachments.isEmpty {
+                        Label("\(attachments.count)", systemImage: "paperclip")
+                            .font(.system(size: T.textXs, weight: .semibold))
+                            .foregroundColor(C.mid)
+                    }
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(sign)\(fmt(entry.amount, currency: entry.resolvedCurrency))")
+                    .font(.system(size: T.textMd, weight: .bold))
+                    .foregroundColor(amountColor)
+                if entry.resolvedCurrency == .usd {
+                    Text("≈ \(fmt(entry.amountInGBP(usdRate: usdRate)))")
+                        .font(.system(size: T.textXs))
+                        .foregroundColor(C.usd)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+struct TallyPill: View {
+    enum Style { case sage, amber, expense }
+    let label: String
+    var style: Style = .sage
+
+    private var fg: Color {
+        switch style { case .sage: C.sage; case .amber: C.amber; case .expense: C.alert }
+    }
+    private var bg: Color {
+        switch style {
+        case .sage: C.sagePale
+        case .amber: C.amber.opacity(0.1)
+        case .expense: C.alert.opacity(0.1)
+        }
+    }
+    private var border: Color {
+        switch style {
+        case .sage: C.mint
+        case .amber: C.amber.opacity(0.25)
+        case .expense: C.alert.opacity(0.2)
+        }
+    }
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: T.textXs, weight: .bold))
+            .foregroundColor(fg)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(bg)
+            .overlay(Capsule().stroke(border, lineWidth: 1))
+            .clipShape(Capsule())
     }
 }
 
@@ -1036,28 +1430,66 @@ struct SummaryView: View {
     var taxCode: String
     var usdRate: Double
 
+    private var income: Double {
+        entries.filter { $0.type == .income }
+            .map { $0.amountInGBP(usdRate: usdRate) }
+            .reduce(0, +)
+    }
+    private var expenses: Double {
+        entries.filter { $0.type == .expense }
+            .map { $0.amountInGBP(usdRate: usdRate) }
+            .reduce(0, +)
+    }
+    private var profit: Double { income - expenses }
+    private var personalAllowance: Double {
+        Double(parseTaxCode(taxCode) ?? 12570)
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Tax Summary for \(taxYear)/\(taxYear + 1)")
-                    .font(.title2)
-                    .bold()
-                    .padding(.bottom, 8)
+            VStack(spacing: 0) {
+                TallyPageHeader(title: "Tax summary",
+                                subtitle: "Year \(String(taxYear))/\(String(taxYear + 1)) — code \(taxCode)")
 
-                // Placeholder for tax summary calculations and display
-                Text("Summary of income, expenses, tax liabilities, and conversions.")
-                    .foregroundColor(.secondary)
+                VStack(spacing: T.space4) {
+                    SummaryCard(label: "Taxable profit",
+                                value: fmt(profit),
+                                accent: C.sage,
+                                style: .sage)
 
-                // TODO: Calculate personal allowance from taxCode, income totals, tax due, etc.
+                    HStack(spacing: T.space4) {
+                        SummaryCard(label: "Income",
+                                    value: fmt(income),
+                                    accent: C.sageLight,
+                                    style: .plain)
+                        SummaryCard(label: "Expenses",
+                                    value: fmt(expenses),
+                                    accent: C.alert,
+                                    style: .plain)
+                    }
+
+                    SummaryCard(label: "Personal allowance",
+                                value: fmt(personalAllowance),
+                                accent: C.amber,
+                                style: .amber)
+
+                    Text("USD rate: \(usdRate, specifier: "%.2f")")
+                        .font(.system(size: T.textXs))
+                        .foregroundColor(C.mid)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, T.space2)
+                }
+                .padding(.horizontal, T.space6)
+                .padding(.bottom, T.space8)
             }
-            .padding()
         }
-        .background(C.background)
+        .background(C.paper)
     }
 }
 
 struct EntryModalView: View {
     @Binding var entry: Entry?
+    var usdRate: Double
     var onSave: (Entry) -> Void
     var onCancel: () -> Void
 
@@ -1066,25 +1498,58 @@ struct EntryModalView: View {
     @State private var date: Date = Date()
     @State private var selectedType: Entry.EntryType = .expense
     @State private var recurrence: Recurrence = .none
+    @State private var duration: Duration? = nil
+    @State private var currency: Currency = .gbp
+    @State private var attachments: [PDFAttachment] = []
+    @State private var showFileImporter = false
 
-    // Static categories for example
+    // Static categories — expense categories include common SaaS / online-business buckets.
     let categories = [
-        Category(id: UUID(), name: "General", colorName: "primary"),
-        Category(id: UUID(), name: "Food", colorName: "orange"),
-        Category(id: UUID(), name: "Transport", colorName: "blue"),
-        Category(id: UUID(), name: "Salary", colorName: "green"),
-        Category(id: UUID(), name: "Tax", colorName: "red")
+        Category(id: UUID(), name: "General",          colorName: "primary"),
+        Category(id: UUID(), name: "Food",             colorName: "orange"),
+        Category(id: UUID(), name: "Transport",        colorName: "blue"),
+        Category(id: UUID(), name: "Salary",           colorName: "green"),
+        Category(id: UUID(), name: "Tax",              colorName: "red"),
+        Category(id: UUID(), name: "Domain names",     colorName: "sage"),
+        Category(id: UUID(), name: "Web hosting",      colorName: "sageLight"),
+        Category(id: UUID(), name: "SSL Certificates", colorName: "amber"),
+        Category(id: UUID(), name: "GenAI",            colorName: "mint")
     ]
 
     @State private var selectedCategory: Category?
+
+    private var amountAsDouble: Double? { Double(amountText) }
+    private var gbpEquivalent: Double? {
+        guard let amount = amountAsDouble, currency == .usd, usdRate > 0 else { return nil }
+        return amount / usdRate
+    }
 
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Details")) {
                     TextField("Description", text: $descriptionText)
-                    TextField("Amount", text: $amountText)
-                        .keyboardType(.decimalPad)
+                    HStack {
+                        Text(currency.symbol)
+                            .foregroundColor(C.mid)
+                        TextField("Amount", text: $amountText)
+                            .keyboardType(.decimalPad)
+                    }
+                    Picker("Currency", selection: $currency) {
+                        ForEach(Currency.allCases) { c in
+                            Text(c.label).tag(c)
+                        }
+                    }
+                    if let gbp = gbpEquivalent {
+                        HStack {
+                            Text("≈ in GBP")
+                                .foregroundColor(C.mid)
+                            Spacer()
+                            Text(fmt(gbp))
+                                .foregroundColor(C.usd)
+                                .font(.system(.body, weight: .semibold))
+                        }
+                    }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     Picker("Type", selection: $selectedType) {
                         Text("Expense").tag(Entry.EntryType.expense)
@@ -1101,6 +1566,49 @@ struct EntryModalView: View {
                             Text(rec.rawValue.capitalized).tag(rec)
                         }
                     }
+                    Picker("Duration", selection: $duration) {
+                        Text("None").tag(Duration?.none)
+                        ForEach(Duration.allCases) { d in
+                            Text(d.label).tag(Duration?.some(d))
+                        }
+                    }
+                }
+
+                Section {
+                    ForEach(attachments) { attachment in
+                        HStack(spacing: T.space2) {
+                            Image(systemName: "doc.fill")
+                                .foregroundColor(C.alert)
+                            VStack(alignment: .leading) {
+                                Text(attachment.displayName)
+                                    .font(.system(size: T.textSm, weight: .semibold))
+                                    .lineLimit(1)
+                                Text(shortDate(attachment.dateAdded))
+                                    .font(.caption)
+                                    .foregroundColor(C.mid)
+                            }
+                            Spacer()
+                            ShareLink(item: AttachmentStore.shared.url(for: attachment)) {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        for index in offsets {
+                            AttachmentStore.shared.delete(attachments[index])
+                        }
+                        attachments.remove(atOffsets: offsets)
+                    }
+
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("Add PDF", systemImage: "paperclip")
+                    }
+                } header: {
+                    Text("Attachments")
+                } footer: {
+                    Text("Attach receipts, invoices, or contracts as PDF.")
                 }
             }
             .navigationTitle(entry == nil ? "New Entry" : "Edit Entry")
@@ -1109,7 +1617,7 @@ struct EntryModalView: View {
                     onCancel()
                 },
                 trailing: Button("Save") {
-                    guard let amount = Double(amountText),
+                    guard let amount = amountAsDouble,
                           let selectedCategory = selectedCategory else { return }
                     let newEntry = Entry(
                         id: entry?.id ?? UUID(),
@@ -1118,12 +1626,31 @@ struct EntryModalView: View {
                         amount: amount,
                         type: selectedType,
                         category: selectedCategory,
-                        recurrence: recurrence == .none ? nil : recurrence
+                        recurrence: recurrence == .none ? nil : recurrence,
+                        duration: duration,
+                        attachments: attachments.isEmpty ? nil : attachments,
+                        currency: currency
                     )
                     onSave(newEntry)
                 }
-                .disabled(descriptionText.isEmpty || Double(amountText) == nil || selectedCategory == nil)
+                .disabled(descriptionText.isEmpty || amountAsDouble == nil || selectedCategory == nil)
             )
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.pdf],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    for url in urls {
+                        if let attachment = AttachmentStore.shared.importPDF(from: url) {
+                            attachments.append(attachment)
+                        }
+                    }
+                case .failure:
+                    break
+                }
+            }
             .onAppear {
                 if let entry = entry {
                     descriptionText = entry.description
@@ -1132,9 +1659,15 @@ struct EntryModalView: View {
                     selectedType = entry.type
                     selectedCategory = entry.category
                     recurrence = entry.recurrence ?? .none
+                    duration = entry.duration
+                    currency = entry.resolvedCurrency
+                    attachments = entry.attachments ?? []
                 } else {
                     selectedCategory = categories.first
                     recurrence = .none
+                    duration = nil
+                    currency = .gbp
+                    attachments = []
                 }
             }
         }
@@ -1485,6 +2018,125 @@ private struct FormErrorView: View {
         .background(C.alert.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: T.radiusMd, style: .continuous))
         .padding(.horizontal, T.space8)
+    }
+}
+
+// MARK: - Settings
+
+struct SettingsView: View {
+    @Binding var profileData: Data
+    @Binding var entriesData: Data
+    @Binding var appearanceMode: AppearanceMode
+    @ObservedObject var loginManager: LoginManager
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var profile = UserProfile()
+    @State private var dobDate = Date()
+    @State private var hasDob = false
+    @State private var showDeleteConfirm = false
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    TextField("Full name", text: $profile.name)
+                        .textContentType(.name)
+                    TextField("NI number (e.g. QQ123456C)", text: $profile.niNumber)
+                        .textInputAutocapitalization(.characters)
+                        .disableAutocorrection(true)
+                    VStack(alignment: .leading, spacing: T.space2) {
+                        Text("Address")
+                            .font(.caption)
+                            .foregroundColor(C.mid)
+                        TextEditor(text: $profile.address)
+                            .frame(minHeight: 80)
+                    }
+                    Toggle("Set date of birth", isOn: $hasDob)
+                    if hasDob {
+                        DatePicker("Date of birth",
+                                   selection: $dobDate,
+                                   in: ...Date(),
+                                   displayedComponents: .date)
+                    }
+                } header: {
+                    Text("Your details")
+                } footer: {
+                    Text("Stored locally on this device. Never sent off-device.")
+                }
+
+                Section {
+                    Picker("Theme", selection: $appearanceMode) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("Delete all data", systemImage: "trash")
+                    }
+                } header: {
+                    Text("Danger zone")
+                } footer: {
+                    Text("Permanently removes your profile, entries, attachments, and account. Returns you to sign-up.")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") { save() }
+                        .fontWeight(.semibold)
+                }
+            }
+            .onAppear(perform: load)
+            .confirmationDialog(
+                "Delete all data?",
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete everything", role: .destructive) { deleteAll() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently remove your profile, entries, attachments, and account.")
+            }
+        }
+    }
+
+    private func load() {
+        if !profileData.isEmpty,
+           let decoded = try? JSONDecoder().decode(UserProfile.self, from: profileData) {
+            profile = decoded
+            if let dob = decoded.dateOfBirth {
+                dobDate = dob
+                hasDob = true
+            }
+        }
+    }
+
+    private func save() {
+        profile.dateOfBirth = hasDob ? dobDate : nil
+        if let encoded = try? JSONEncoder().encode(profile) {
+            profileData = encoded
+        }
+        dismiss()
+    }
+
+    private func deleteAll() {
+        AttachmentStore.shared.deleteAll()
+        profileData = Data()
+        entriesData = Data()
+        loginManager.resetAccount()
+        dismiss()
     }
 }
 
