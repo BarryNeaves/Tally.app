@@ -985,14 +985,63 @@ func shortDate(_ date: Date) -> String {
 }
 
 func parseTaxCode(_ code: String) -> Int? {
-    // UK tax code is typically numbers followed by a letter, e.g. 1257L
-    // Extract numeric part and multiply by 10 to get personal allowance
-    let numericPart = code.trimmingCharacters(in: CharacterSet.letters.inverted)
-    if let number = Int(numericPart) {
-        return number * 10
+    // UK tax code is typically digits followed by a letter, e.g. 1257L.
+    // Personal allowance is the digit portion × 10.
+    // Special codes like BR / D0 / D1 / NT have no allowance — return 0.
+    let upper = code.uppercased().trimmingCharacters(in: .whitespaces)
+    if ["BR", "D0", "D1", "D2", "NT", "0T"].contains(upper) {
+        return 0
     }
-    return nil
+    let digits = upper.filter { $0.isNumber }
+    guard !digits.isEmpty, let number = Int(digits) else { return nil }
+    return number * 10
 }
+
+/// Common UK tax-code presets with a one-line explanation for the lookup picker.
+struct TaxCodePreset: Identifiable {
+    var id: String { code }
+    let code: String
+    let description: String
+}
+
+let commonTaxCodes: [TaxCodePreset] = [
+    .init(code: "1257L", description: "Standard personal allowance (£12,570)"),
+    .init(code: "BR",    description: "Basic rate on all income — no allowance"),
+    .init(code: "D0",    description: "Higher rate on all income (40%)"),
+    .init(code: "D1",    description: "Additional rate on all income (45%)"),
+    .init(code: "NT",    description: "No tax deducted (rare)"),
+    .init(code: "0T",    description: "No personal allowance, normal bands"),
+    .init(code: "K475",  description: "Negative allowance — owe HMRC on £4,750"),
+]
+
+/// UK income-tax bands for 2025/26 (England & NI rates).
+struct TaxBand: Identifiable {
+    var id: String { name }
+    let name: String
+    let upTo: Double?     // nil = no upper limit
+    let rate: Double      // 0.20 = 20%
+}
+
+let ukIncomeTaxBands2025_26: [TaxBand] = [
+    .init(name: "Personal allowance", upTo: 12_570,  rate: 0.0),
+    .init(name: "Basic rate",         upTo: 50_270,  rate: 0.20),
+    .init(name: "Higher rate",        upTo: 125_140, rate: 0.40),
+    .init(name: "Additional rate",    upTo: nil,     rate: 0.45),
+]
+
+/// Class 4 NI bands for self-employed, 2025/26.
+struct NIBand: Identifiable {
+    var id: String { name }
+    let name: String
+    let upTo: Double?
+    let rate: Double
+}
+
+let ukClass4NIBands2025_26: [NIBand] = [
+    .init(name: "Below lower limit",  upTo: 12_570, rate: 0.0),
+    .init(name: "Main rate",          upTo: 50_270, rate: 0.06),
+    .init(name: "Upper rate",         upTo: nil,    rate: 0.02),
+]
 
 // MARK: - Main View
 
@@ -1090,6 +1139,7 @@ struct UkExpenseTrackerView: View {
                             profileData: $profileData,
                             entriesData: $entriesData,
                             appearanceMode: $appearanceMode,
+                            taxCode: $taxCode,
                             loginManager: loginManager
                         )
                     }
@@ -1274,6 +1324,107 @@ private struct SummaryCard: View {
                 .stroke(border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+private struct TaxBandsReferenceCard: View {
+    var body: some View {
+        ReferenceCard(title: "UK Income Tax bands", subtitle: "2025/26 — England & NI") {
+            ForEach(ukIncomeTaxBands2025_26) { band in
+                ReferenceRow(
+                    label: band.name,
+                    range: bandRangeString(upTo: band.upTo, previousUpTo: previousUpTo(for: band)),
+                    rate: "\(Int(band.rate * 100))%"
+                )
+            }
+        }
+    }
+
+    private func previousUpTo(for band: TaxBand) -> Double? {
+        guard let idx = ukIncomeTaxBands2025_26.firstIndex(where: { $0.name == band.name }),
+              idx > 0 else { return nil }
+        return ukIncomeTaxBands2025_26[idx - 1].upTo
+    }
+}
+
+private struct NIBandsReferenceCard: View {
+    var body: some View {
+        ReferenceCard(title: "Class 4 NI bands", subtitle: "2025/26 — self-employed") {
+            ForEach(ukClass4NIBands2025_26) { band in
+                ReferenceRow(
+                    label: band.name,
+                    range: bandRangeString(upTo: band.upTo, previousUpTo: previousUpTo(for: band)),
+                    rate: "\(Int(band.rate * 100))%"
+                )
+            }
+        }
+    }
+
+    private func previousUpTo(for band: NIBand) -> Double? {
+        guard let idx = ukClass4NIBands2025_26.firstIndex(where: { $0.name == band.name }),
+              idx > 0 else { return nil }
+        return ukClass4NIBands2025_26[idx - 1].upTo
+    }
+}
+
+private func bandRangeString(upTo: Double?, previousUpTo: Double?) -> String {
+    let from = previousUpTo.map { fmt($0) } ?? fmt(0)
+    if let upTo {
+        return "\(from) – \(fmt(upTo))"
+    }
+    return "Over \(from)"
+}
+
+private struct ReferenceCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space3) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: T.textMd, weight: .bold))
+                    .foregroundColor(C.ink)
+                Text(subtitle)
+                    .font(.eyebrow)
+                    .foregroundColor(C.sage)
+            }
+            VStack(spacing: T.space2) {
+                content()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(T.space5)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+private struct ReferenceRow: View {
+    let label: String
+    let range: String
+    let rate: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: T.space2) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: T.textSm, weight: .semibold))
+                    .foregroundColor(C.ink)
+                Text(range)
+                    .font(.system(size: T.textXs))
+                    .foregroundColor(C.mid)
+            }
+            Spacer()
+            Text(rate)
+                .font(.system(size: T.textSm, weight: .bold, design: .monospaced))
+                .foregroundColor(C.sage)
+        }
     }
 }
 
@@ -1472,6 +1623,9 @@ struct SummaryView: View {
                                 value: fmt(personalAllowance),
                                 accent: C.amber,
                                 style: .amber)
+
+                    TaxBandsReferenceCard()
+                    NIBandsReferenceCard()
 
                     Text("USD rate: \(usdRate, specifier: "%.2f")")
                         .font(.system(size: T.textXs))
@@ -2027,6 +2181,7 @@ struct SettingsView: View {
     @Binding var profileData: Data
     @Binding var entriesData: Data
     @Binding var appearanceMode: AppearanceMode
+    @Binding var taxCode: String
     @ObservedObject var loginManager: LoginManager
     @Environment(\.dismiss) private var dismiss
 
@@ -2034,6 +2189,10 @@ struct SettingsView: View {
     @State private var dobDate = Date()
     @State private var hasDob = false
     @State private var showDeleteConfirm = false
+
+    private var personalAllowance: Int? {
+        parseTaxCode(taxCode)
+    }
 
     var body: some View {
         NavigationView {
@@ -2058,10 +2217,40 @@ struct SettingsView: View {
                                    in: ...Date(),
                                    displayedComponents: .date)
                     }
+                    HStack {
+                        TextField("Tax code (e.g. 1257L)", text: $taxCode)
+                            .textInputAutocapitalization(.characters)
+                            .disableAutocorrection(true)
+                        Menu {
+                            ForEach(commonTaxCodes) { preset in
+                                Button {
+                                    taxCode = preset.code
+                                } label: {
+                                    VStack(alignment: .leading) {
+                                        Text(preset.code)
+                                        Text(preset.description)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "list.bullet.rectangle")
+                        }
+                        .accessibilityLabel("Common tax codes")
+
+                        if let allowance = personalAllowance {
+                            Text(fmt(Double(allowance)))
+                                .font(.system(.body, weight: .semibold))
+                                .foregroundColor(C.sage)
+                        } else {
+                            Text("invalid")
+                                .font(.caption)
+                                .foregroundColor(C.alert)
+                        }
+                    }
                 } header: {
                     Text("Your details")
                 } footer: {
-                    Text("Stored locally on this device. Never sent off-device.")
+                    Text("Tax code drives your personal allowance on the Tax summary. Stored locally on this device.")
                 }
 
                 Section {
