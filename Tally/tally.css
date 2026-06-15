@@ -1,0 +1,1035 @@
+/* =============================================================================
+   TALLY — Brand Design System
+   "Tax made human."
+   Version 1.0
+   
+   Contents:
+   1.  Tokens (colours, type, spacing, radius, shadow)
+   2.  Typography
+   3.  Logo mark — .tally-logo
+   4.  App icon — .tally-icon
+   5.  Wordmark — .tally-wordmark
+   6.  Buttons
+   7.  Cards
+   8.  Badges & Pills
+   9.  Form inputs
+   10. Navigation bar
+   11. Amount display
+   12. Entry row
+   13. Swatches (brand reference)
+   14. Dark mode overrides
+   ============================================================================= */
+
+
+/* ── 1. TOKENS ────────────────────────────────────────────────────────────────
+   All values are defined here. Never hard-code a colour, size, or radius
+   anywhere else — always reference a token. */
+
+:root {
+
+  /* --- Colour palette --- */
+  --tally-sage:        #4A7C59;   /* Primary brand, CTAs, active states */
+  --tally-sage-light:  #6BA87A;   /* Income, positive values, growth */
+  --tally-sage-pale:   #EEF5F0;   /* Card fills, section backgrounds */
+  --tally-mint:        #B8DFC4;   /* Badges, tags, borders on light */
+  --tally-paper:       #F7F6F1;   /* App background — light mode */
+  --tally-ink:         #1A1C18;   /* Body text, dark base */
+  --tally-mid:         #4A4D46;   /* Secondary text, labels */
+  --tally-rule:        #DDE0D8;   /* Dividers, borders */
+  --tally-amber:       #D4862A;   /* Tax liability, key callouts, crossbar */
+  --tally-amber-pale:  #FFF3E0;   /* Amber card background */
+  --tally-alert:       #E05252;   /* Errors, delete, overdue */
+  --tally-white:       #FFFFFF;
+
+  /* Dark mode surface colours */
+  --tally-dark-base:   #0F1117;
+  --tally-dark-card:   #1C1F2A;
+  --tally-dark-card-2: #252836;
+  --tally-dark-border: #2E3348;
+  --tally-dark-input:  #13161F;
+
+  /* USD accent */
+  --tally-usd:         #F7A928;
+
+  /* --- Typography --- */
+  --tally-font-display: 'DM Serif Display', Georgia, serif;
+  --tally-font-body:    'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+
+  /* Type scale */
+  --tally-text-xs:   11px;
+  --tally-text-sm:   13px;
+  --tally-text-base: 15px;
+  --tally-text-md:   17px;
+  --tally-text-lg:   22px;
+  --tally-text-xl:   28px;
+  --tally-text-2xl:  38px;
+  --tally-text-3xl:  52px;
+
+  /* --- Spacing --- */
+  --tally-space-1:   4px;
+  --tally-space-2:   8px;
+  --tally-space-3:  12px;
+  --tally-space-4:  16px;
+  --tally-space-5:  20px;
+  --tally-space-6:  24px;
+  --tally-space-8:  32px;
+  --tally-space-10: 40px;
+  --tally-space-12: 48px;
+
+  /* --- Border radius --- */
+  --tally-radius-sm:  8px;
+  --tally-radius-md:  12px;
+  --tally-radius-lg:  16px;
+  --tally-radius-xl:  24px;
+  --tally-radius-pill: 999px;
+  --tally-radius-icon-sm: 10px;   /* 40px icon */
+  --tally-radius-icon-md: 18px;   /* 76px icon */
+  --tally-radius-icon-lg: 28px;   /* 120px icon */
+
+  /* --- Shadows --- */
+  --tally-shadow-card:  0 2px 12px rgba(0, 0, 0, 0.06);
+  --tally-shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.18);
+  --tally-shadow-icon:  0 24px 60px rgba(0, 0, 0, 0.28);
+  --tally-shadow-btn:   0 4px 20px rgba(74, 124, 89, 0.35);
+
+  /* --- Logo mark dimensions (base size, scales with font-size) --- */
+  --tally-mark-stroke-w:  5px;    /* width of each vertical bar */
+  --tally-mark-stroke-h:  52px;   /* height of each vertical bar */
+  --tally-mark-gap:       8px;    /* gap between bars */
+  --tally-mark-cross-h:   5px;    /* height of amber crossbar */
+  --tally-mark-cross-rot: -20deg; /* rotation of crossbar */
+  --tally-mark-radius:    3px;    /* bar border-radius */
+
+  /* --- Transitions --- */
+  --tally-transition: 0.18s ease;
+}
+
+
+/* ── 2. TYPOGRAPHY ────────────────────────────────────────────────────────────
+   Always use these classes — never set font-family inline. */
+
+.tally-display {
+  font-family: var(--tally-font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--tally-ink);
+}
+
+.tally-display--italic {
+  font-family: var(--tally-font-display);
+  font-style: italic;
+  color: var(--tally-sage);
+}
+
+/* Strapline set in display italic */
+.tally-strapline {
+  font-family: var(--tally-font-display);
+  font-style: italic;
+  font-size: var(--tally-text-xl);
+  color: var(--tally-sage);
+  letter-spacing: -0.01em;
+}
+
+/* All UI body copy */
+.tally-body {
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-base);
+  line-height: 1.7;
+  color: var(--tally-mid);
+}
+
+/* Eyebrow / section label */
+.tally-eyebrow {
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tally-sage);
+}
+
+/* Data label (above a big number) */
+.tally-data-label {
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tally-mid);
+  margin-bottom: var(--tally-space-1);
+}
+
+/* Hero number */
+.tally-data-value {
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-2xl);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--tally-ink);
+}
+
+.tally-data-value--income  { color: var(--tally-sage-light); }
+.tally-data-value--expense { color: var(--tally-alert); }
+.tally-data-value--tax     { color: var(--tally-amber); }
+.tally-data-value--profit  { color: var(--tally-sage); }
+
+
+/* ── 3. LOGO MARK — .tally-logo ───────────────────────────────────────────────
+
+   The Tally mark is four vertical bars (a tally count) crossed by an amber
+   diagonal (the fifth mark — the crossbar that signals "done / resolved").
+
+   Usage:
+     <div class="tally-logo">
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__cross"></span>
+     </div>
+
+   Size modifiers: tally-logo--sm  (icon on lockup)
+                   tally-logo--md  (40px icon context)
+                   tally-logo--lg  (app store / hero)
+*/
+
+.tally-logo {
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tally-mark-gap);
+}
+
+.tally-logo__bar {
+  display: block;
+  width: var(--tally-mark-stroke-w);
+  height: var(--tally-mark-stroke-h);
+  background: var(--tally-white);
+  border-radius: var(--tally-mark-radius);
+  flex-shrink: 0;
+}
+
+/* Amber crossbar — the signature element */
+.tally-logo__cross {
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--tally-mark-gap));
+  right: calc(-1 * var(--tally-mark-gap));
+  height: var(--tally-mark-cross-h);
+  background: var(--tally-amber);
+  border-radius: var(--tally-mark-radius);
+  transform: rotate(var(--tally-mark-cross-rot)) translateY(-50%);
+  pointer-events: none;
+}
+
+/* On light backgrounds, bars switch to sage */
+.tally-logo--on-light .tally-logo__bar {
+  background: var(--tally-sage);
+}
+
+/* Size: small — wordmark icon (40×40 context) */
+.tally-logo--sm {
+  --tally-mark-stroke-w: 3px;
+  --tally-mark-stroke-h: 20px;
+  --tally-mark-gap:      4px;
+  --tally-mark-cross-h:  3px;
+  --tally-mark-radius:   2px;
+}
+
+/* Size: medium — 76px icon context */
+.tally-logo--md {
+  --tally-mark-stroke-w: 4px;
+  --tally-mark-stroke-h: 34px;
+  --tally-mark-gap:      6px;
+  --tally-mark-cross-h:  4px;
+}
+
+/* Size: large — hero / app store 120–180px */
+.tally-logo--lg {
+  --tally-mark-stroke-w: 7px;
+  --tally-mark-stroke-h: 64px;
+  --tally-mark-gap:      11px;
+  --tally-mark-cross-h:  7px;
+  --tally-mark-radius:   4px;
+}
+
+
+/* ── 4. APP ICON — .tally-icon ────────────────────────────────────────────────
+
+   Usage:
+     <div class="tally-icon tally-icon--lg">
+       <div class="tally-logo tally-logo--lg">
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__cross"></span>
+       </div>
+     </div>
+*/
+
+.tally-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tally-sage);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* Subtle highlight orb — top-right */
+.tally-icon::before {
+  content: '';
+  position: absolute;
+  top: -25%;
+  right: -15%;
+  width: 65%;
+  height: 65%;
+  background: var(--tally-sage-light);
+  border-radius: 50%;
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+/* Dark variant */
+.tally-icon--dark {
+  background: var(--tally-ink);
+}
+.tally-icon--dark::before {
+  background: #2a2d28;
+  opacity: 0.8;
+}
+.tally-icon--dark .tally-logo__bar {
+  background: var(--tally-sage-light);
+}
+
+/* White variant (on sage backgrounds) */
+.tally-icon--white {
+  background: var(--tally-white);
+}
+.tally-icon--white .tally-logo__bar {
+  background: var(--tally-sage);
+}
+
+/* --- Sizes --- */
+
+/* 29px — Settings / Spotlight */
+.tally-icon--29 {
+  width: 29px;
+  height: 29px;
+  border-radius: 7px;
+}
+
+/* 40px — Home screen / Notification */
+.tally-icon--40 {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--tally-radius-icon-sm);
+}
+
+/* 76px — iPad */
+.tally-icon--76 {
+  width: 76px;
+  height: 76px;
+  border-radius: var(--tally-radius-icon-md);
+}
+
+/* 120px — iPhone / standard */
+.tally-icon--120 {
+  width: 120px;
+  height: 120px;
+  border-radius: var(--tally-radius-icon-lg);
+  box-shadow: var(--tally-shadow-icon);
+}
+
+/* 180px — App Store hero */
+.tally-icon--180 {
+  width: 180px;
+  height: 180px;
+  border-radius: 40px;
+  box-shadow: var(--tally-shadow-icon);
+}
+
+
+/* ── 5. WORDMARK — .tally-wordmark ───────────────────────────────────────────
+
+   Usage:
+     <div class="tally-wordmark">
+       <div class="tally-icon tally-icon--40">
+         <div class="tally-logo tally-logo--sm"> ... </div>
+       </div>
+       <span class="tally-wordmark__name">Tally<span class="tally-wordmark__dot"></span></span>
+     </div>
+*/
+
+.tally-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+}
+
+.tally-wordmark__name {
+  font-family: var(--tally-font-display);
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--tally-ink);
+  position: relative;
+}
+
+/* The small sage dot that follows "Tally" */
+.tally-wordmark__dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--tally-sage-light);
+  border-radius: 50%;
+  margin-left: 2px;
+  vertical-align: super;
+  position: relative;
+  top: -2px;
+}
+
+/* On dark backgrounds */
+.tally-wordmark--on-dark .tally-wordmark__name {
+  color: var(--tally-white);
+}
+
+/* On sage backgrounds — dot becomes amber */
+.tally-wordmark--on-sage .tally-wordmark__name {
+  color: var(--tally-white);
+}
+.tally-wordmark--on-sage .tally-wordmark__dot {
+  background: var(--tally-amber);
+}
+
+/* Large hero size */
+.tally-wordmark--hero .tally-wordmark__name {
+  font-size: clamp(48px, 7vw, 80px);
+}
+.tally-wordmark--hero .tally-wordmark__dot {
+  width: 11px;
+  height: 11px;
+}
+
+
+/* ── 6. BUTTONS ──────────────────────────────────────────────────────────────
+
+   Usage:
+     <button class="tally-btn">Save entry</button>
+     <button class="tally-btn tally-btn--ghost">Cancel</button>
+     <button class="tally-btn tally-btn--danger">Delete</button>
+*/
+
+.tally-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tally-space-2);
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-base);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  padding: 14px 24px;
+  border-radius: var(--tally-radius-lg);
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--tally-transition), transform var(--tally-transition);
+  background: var(--tally-sage);
+  color: var(--tally-white);
+  box-shadow: var(--tally-shadow-btn);
+  width: 100%;
+  text-align: center;
+}
+
+.tally-btn:hover  { opacity: 0.88; }
+.tally-btn:active { transform: scale(0.98); opacity: 0.82; }
+
+.tally-btn--ghost {
+  background: transparent;
+  color: var(--tally-sage);
+  border: 1.5px solid var(--tally-sage);
+  box-shadow: none;
+}
+
+.tally-btn--danger {
+  background: rgba(224, 82, 82, 0.1);
+  color: var(--tally-alert);
+  box-shadow: none;
+}
+
+.tally-btn--sm {
+  font-size: var(--tally-text-sm);
+  padding: 8px 16px;
+  border-radius: var(--tally-radius-md);
+  width: auto;
+}
+
+.tally-btn--pill {
+  border-radius: var(--tally-radius-pill);
+}
+
+.tally-btn--fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 24px;
+  box-shadow: 0 4px 20px rgba(74, 124, 89, 0.5);
+}
+
+
+/* ── 7. CARDS ────────────────────────────────────────────────────────────────
+
+   Usage:
+     <div class="tally-card">...</div>
+     <div class="tally-card tally-card--amber">...</div>
+*/
+
+.tally-card {
+  background: var(--tally-white);
+  border: 1px solid var(--tally-rule);
+  border-radius: var(--tally-radius-lg);
+  padding: var(--tally-space-5) var(--tally-space-5);
+  box-shadow: var(--tally-shadow-card);
+}
+
+/* Amber highlight — for tax liability callout */
+.tally-card--amber {
+  background: var(--tally-amber-pale);
+  border-color: rgba(212, 134, 42, 0.3);
+}
+
+/* Sage tint — for positive summaries */
+.tally-card--sage {
+  background: var(--tally-sage-pale);
+  border-color: var(--tally-mint);
+}
+
+/* Dark mode card */
+.tally-card--dark {
+  background: var(--tally-dark-card);
+  border-color: var(--tally-dark-border);
+}
+
+/* Inner card (nested inside a card) */
+.tally-card--inner {
+  background: var(--tally-sage-pale);
+  border: none;
+  border-radius: var(--tally-radius-md);
+  padding: var(--tally-space-3) var(--tally-space-4);
+  box-shadow: none;
+}
+
+/* USD card */
+.tally-card--usd {
+  background: rgba(247, 169, 40, 0.06);
+  border-color: rgba(247, 169, 40, 0.3);
+}
+
+
+/* ── 8. BADGES & PILLS ───────────────────────────────────────────────────────
+
+   Usage:
+     <span class="tally-pill">One-off</span>
+     <span class="tally-pill tally-pill--income">Monthly</span>
+     <span class="tally-pill tally-pill--usd">$12.99 USD</span>
+*/
+
+.tally-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tally-space-1);
+  padding: 3px 10px;
+  border-radius: var(--tally-radius-pill);
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  background: var(--tally-sage-pale);
+  color: var(--tally-sage);
+  border: 1px solid var(--tally-mint);
+}
+
+.tally-pill--income {
+  background: rgba(107, 168, 122, 0.12);
+  color: var(--tally-sage-light);
+  border-color: rgba(107, 168, 122, 0.3);
+}
+
+.tally-pill--expense {
+  background: rgba(224, 82, 82, 0.1);
+  color: var(--tally-alert);
+  border-color: rgba(224, 82, 82, 0.2);
+}
+
+.tally-pill--amber {
+  background: rgba(212, 134, 42, 0.1);
+  color: var(--tally-amber);
+  border-color: rgba(212, 134, 42, 0.25);
+}
+
+.tally-pill--usd {
+  background: rgba(247, 169, 40, 0.1);
+  color: var(--tally-usd);
+  border-color: rgba(247, 169, 40, 0.3);
+}
+
+
+/* ── 9. FORM INPUTS ──────────────────────────────────────────────────────────
+
+   Usage:
+     <label class="tally-label">Amount (£)</label>
+     <input class="tally-input" type="number" />
+     <input class="tally-input tally-input--large" type="number" />
+     <select class="tally-input tally-select"> ... </select>
+*/
+
+.tally-label {
+  display: block;
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tally-mid);
+  margin-bottom: var(--tally-space-2);
+}
+
+.tally-input {
+  width: 100%;
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-base);
+  font-weight: 400;
+  color: var(--tally-ink);
+  background: var(--tally-white);
+  border: 1.5px solid var(--tally-rule);
+  border-radius: var(--tally-radius-md);
+  padding: 11px 14px;
+  outline: none;
+  transition: border-color var(--tally-transition), box-shadow var(--tally-transition);
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tally-input:focus {
+  border-color: var(--tally-sage);
+  box-shadow: 0 0 0 3px rgba(74, 124, 89, 0.12);
+}
+
+/* Large amount input */
+.tally-input--large {
+  font-size: var(--tally-text-lg);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* USD-mode input */
+.tally-input--usd:focus {
+  border-color: var(--tally-usd);
+  box-shadow: 0 0 0 3px rgba(247, 169, 40, 0.12);
+}
+
+.tally-select {
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234A4D46' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+/* Segment control (expense / income / currency toggle) */
+.tally-segment {
+  display: grid;
+  gap: var(--tally-space-1);
+  background: var(--tally-sage-pale);
+  border: 1px solid var(--tally-rule);
+  border-radius: var(--tally-radius-md);
+  padding: 4px;
+}
+
+.tally-segment--2col { grid-template-columns: 1fr 1fr; }
+.tally-segment--3col { grid-template-columns: 1fr 1fr 1fr; }
+
+.tally-segment__option {
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-sm);
+  font-weight: 700;
+  color: var(--tally-mid);
+  background: transparent;
+  border: 1.5px solid transparent;
+  border-radius: var(--tally-radius-sm);
+  padding: 9px 0;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--tally-transition);
+}
+
+.tally-segment__option:hover {
+  color: var(--tally-ink);
+}
+
+.tally-segment__option--active {
+  background: var(--tally-white);
+  border-color: var(--tally-sage);
+  color: var(--tally-ink);
+  box-shadow: var(--tally-shadow-card);
+}
+
+.tally-segment__option--active-usd {
+  background: rgba(247, 169, 40, 0.08);
+  border-color: var(--tally-usd);
+  color: var(--tally-usd);
+}
+
+
+/* ── 10. NAVIGATION BAR ──────────────────────────────────────────────────────
+
+   Usage:
+     <nav class="tally-nav">
+       <button class="tally-nav__item tally-nav__item--active">Overview</button>
+       <button class="tally-nav__item">Expenses</button>
+       ...
+       <button class="tally-btn tally-btn--fab tally-nav__fab">+</button>
+     </nav>
+*/
+
+.tally-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 430px;
+  background: rgba(247, 246, 241, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--tally-rule);
+  display: flex;
+  align-items: center;
+  padding: var(--tally-space-2) 0 20px;
+  z-index: 100;
+}
+
+.tally-nav__item {
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
+  font-family: var(--tally-font-body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--tally-mid);
+  transition: color var(--tally-transition);
+}
+
+.tally-nav__item--active {
+  color: var(--tally-sage);
+}
+
+.tally-nav__item-icon {
+  font-size: 20px;
+  opacity: 0.4;
+  transition: opacity var(--tally-transition);
+}
+
+.tally-nav__item--active .tally-nav__item-icon {
+  opacity: 1;
+}
+
+/* Floating + button */
+.tally-nav__fab {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 101;
+}
+
+
+/* ── 11. AMOUNT DISPLAY ──────────────────────────────────────────────────────
+
+   Usage:
+     <div class="tally-amount">
+       <div class="tally-data-label">Taxable profit</div>
+       <div class="tally-amount__value tally-amount__value--profit">£8,450</div>
+       <div class="tally-amount__sub">Income minus allowable expenses</div>
+     </div>
+*/
+
+.tally-amount {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tally-space-1);
+}
+
+.tally-amount__value {
+  font-family: var(--tally-font-body);
+  font-size: var(--tally-text-2xl);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--tally-ink);
+}
+
+.tally-amount__value--income  { color: var(--tally-sage-light); }
+.tally-amount__value--expense { color: var(--tally-alert); }
+.tally-amount__value--profit  { color: var(--tally-sage); }
+.tally-amount__value--tax     { color: var(--tally-amber); }
+
+/* Sign prefix */
+.tally-amount__sign {
+  font-size: 0.65em;
+  font-weight: 600;
+  vertical-align: middle;
+  margin-right: 1px;
+}
+
+.tally-amount__sub {
+  font-size: var(--tally-text-xs);
+  color: var(--tally-mid);
+  margin-top: var(--tally-space-1);
+}
+
+/* Inline USD conversion */
+.tally-amount__usd {
+  font-size: var(--tally-text-xs);
+  color: var(--tally-usd);
+  font-weight: 600;
+  margin-top: var(--tally-space-1);
+}
+
+
+/* ── 12. ENTRY ROW ───────────────────────────────────────────────────────────
+
+   Usage:
+     <div class="tally-entry">
+       <div class="tally-entry__icon">🌐</div>
+       <div class="tally-entry__body">
+         <div class="tally-entry__name">Namecheap domain</div>
+         <div class="tally-entry__meta">
+           <span>14 Jun 25</span>
+           <span class="tally-pill tally-pill--expense">One-off</span>
+         </div>
+       </div>
+       <div class="tally-entry__amount tally-entry__amount--expense">−£12.99</div>
+     </div>
+*/
+
+.tally-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--tally-space-3);
+  background: var(--tally-white);
+  border: 1px solid var(--tally-rule);
+  border-radius: var(--tally-radius-lg);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: box-shadow var(--tally-transition);
+  text-decoration: none;
+  color: inherit;
+}
+
+.tally-entry:hover {
+  box-shadow: var(--tally-shadow-card);
+}
+
+.tally-entry__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--tally-radius-sm);
+  background: var(--tally-sage-pale);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.tally-entry__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tally-entry__name {
+  font-size: var(--tally-text-sm);
+  font-weight: 600;
+  color: var(--tally-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.tally-entry__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tally-space-2);
+  flex-wrap: wrap;
+}
+
+.tally-entry__date {
+  font-size: var(--tally-text-xs);
+  color: var(--tally-mid);
+}
+
+.tally-entry__amount {
+  font-size: var(--tally-text-md);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.tally-entry__amount--income  { color: var(--tally-sage-light); }
+.tally-entry__amount--expense { color: var(--tally-alert); }
+
+
+/* ── 13. SWATCHES (brand reference) ─────────────────────────────────────────
+
+   Usage (reference / style guide only):
+     <div class="tally-swatch" style="--swatch-color: #4A7C59;">
+       <div class="tally-swatch__chip"></div>
+       <div class="tally-swatch__info">
+         <span class="tally-swatch__name">Sage</span>
+         <span class="tally-swatch__hex">#4A7C59</span>
+       </div>
+     </div>
+*/
+
+.tally-swatch {
+  border: 1px solid var(--tally-rule);
+  border-radius: var(--tally-radius-md);
+  overflow: hidden;
+}
+
+.tally-swatch__chip {
+  height: 80px;
+  background: var(--swatch-color, var(--tally-sage));
+}
+
+.tally-swatch__info {
+  padding: 10px 12px;
+  background: var(--tally-white);
+}
+
+.tally-swatch__name {
+  display: block;
+  font-size: var(--tally-text-sm);
+  font-weight: 700;
+  color: var(--tally-ink);
+  margin-bottom: 2px;
+}
+
+.tally-swatch__hex {
+  display: block;
+  font-size: var(--tally-text-xs);
+  color: var(--tally-mid);
+  font-family: 'DM Mono', 'Courier New', monospace;
+  letter-spacing: 0.06em;
+}
+
+
+/* ── 14. DARK MODE OVERRIDES ─────────────────────────────────────────────────
+   Applied automatically when prefers-color-scheme: dark, OR by adding
+   class="tally-dark" to <html> or a parent element. */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tally-paper:  var(--tally-dark-base);
+    --tally-white:  var(--tally-dark-card);
+    --tally-ink:    #F0F2FF;
+    --tally-mid:    #7B82A0;
+    --tally-rule:   var(--tally-dark-border);
+  }
+}
+
+.tally-dark,
+.tally-dark * {
+  --tally-paper:  #0F1117;
+  --tally-white:  #1C1F2A;
+  --tally-ink:    #F0F2FF;
+  --tally-mid:    #7B82A0;
+  --tally-rule:   #2E3348;
+  --tally-sage-pale: rgba(74, 124, 89, 0.15);
+}
+
+.tally-dark .tally-nav {
+  background: rgba(28, 31, 42, 0.96);
+  border-top-color: var(--tally-dark-border);
+}
+
+.tally-dark .tally-input {
+  background: var(--tally-dark-input);
+  color: #F0F2FF;
+  border-color: var(--tally-dark-border);
+}
+
+.tally-dark .tally-input:focus {
+  border-color: var(--tally-sage-light);
+  box-shadow: 0 0 0 3px rgba(107, 168, 122, 0.15);
+}
+
+.tally-dark .tally-segment {
+  background: var(--tally-dark-input);
+  border-color: var(--tally-dark-border);
+}
+
+.tally-dark .tally-segment__option--active {
+  background: var(--tally-dark-card);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+
+/* =============================================================================
+   QUICK-REFERENCE: Logo HTML template
+   
+   Copy-paste this wherever you need the Tally mark:
+
+   <!-- Standard icon + wordmark -->
+   <div class="tally-wordmark">
+     <div class="tally-icon tally-icon--40">
+       <div class="tally-logo tally-logo--sm">
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__bar"></span>
+         <span class="tally-logo__cross"></span>
+       </div>
+     </div>
+     <span class="tally-wordmark__name">Tally<span class="tally-wordmark__dot"></span></span>
+   </div>
+
+   <!-- Hero app icon (120px) -->
+   <div class="tally-icon tally-icon--120">
+     <div class="tally-logo tally-logo--lg">
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__bar"></span>
+       <span class="tally-logo__cross"></span>
+     </div>
+   </div>
+
+   <!-- On light background (bars switch to sage) -->
+   <div class="tally-icon tally-icon--40 tally-icon--white">
+     <div class="tally-logo tally-logo--sm tally-logo--on-light"> ... </div>
+   </div>
+
+   <!-- Dark mode icon -->
+   <div class="tally-icon tally-icon--120 tally-icon--dark">
+     <div class="tally-logo tally-logo--lg"> ... </div>
+   </div>
+============================================================================= */
