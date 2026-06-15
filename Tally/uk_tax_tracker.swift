@@ -392,35 +392,37 @@ func currentTaxYear() -> Int {
 // Color tokens taken from the CSS design system
 
 struct C {
-    // Primary Palette
-    static let primary = Color(red: 0.0, green: 0.5, blue: 0.8)
-    static let secondary = Color(red: 0.9, green: 0.6, blue: 0.2)
-    static let green = Color.green
-    static let red = Color.red
-    
-    // Backgrounds
-    static let background = Color(UIColor.systemBackground)
-    static let cardBackground = Color(UIColor.secondarySystemBackground)
-    
-    // Text
-    static let textPrimary = Color.primary
-    static let textSecondary = Color.secondary
+    // Brand palette — sourced from tally.css :root tokens
+    static let sage = Color(hex: "#4A7C59")           // Primary CTA, active states
+    static let sageLight = Color(hex: "#6BA87A")      // Income, positive values
+    static let sagePale = Color(hex: "#EEF5F0")       // Card fills, section bg
+    static let mint = Color(hex: "#B8DFC4")           // Badges, soft borders
+    static let paper = Color(hex: "#F7F6F1")          // App background (light)
+    static let ink = Color(hex: "#1A1C18")            // Primary text
+    static let mid = Color(hex: "#4A4D46")            // Secondary text
+    static let rule = Color(hex: "#DDE0D8")           // Dividers, borders
+    static let amber = Color(hex: "#D4862A")          // Tax callouts, crossbar
+    static let amberPale = Color(hex: "#FFF3E0")      // Amber card background
+    static let alert = Color(hex: "#E05252")          // Errors, delete, overdue
+    static let usd = Color(hex: "#F7A928")            // USD accent
+    static let white = Color.white
 
-    // Additional colors from design tokens (hex codes)
-    static let sage = Color(hex: "#9DC9BC")           // sage
-    static let sageLight = Color(hex: "#B4D8D3")      // sageLight
-    static let sagePale = Color(hex: "#E5F4F1")       // sagePale
-    static let mint = Color(hex: "#B8D8D8")           // mint
-    static let paper = Color(hex: "#F0F0F0")          // paper
-    static let ink = Color(hex: "#222222")            // ink
-    static let mid = Color(hex: "#555555")            // mid
-    static let rule = Color(hex: "#CCCCCC")           // rule
-    static let amber = Color(hex: "#FFC107")          // amber
-    static let amberPale = Color(hex: "#FFF8E1")      // amberPale
-    static let alert = Color(hex: "#D32F2F")          // alert
-    static let white = Color.white                      // white
-    static let darkBase = Color(hex: "#121212")       // darkBase
-    static let darkCard = Color(hex: "#1E1E1E")       // darkCard
+    // Dark surfaces
+    static let darkBase = Color(hex: "#0F1117")
+    static let darkCard = Color(hex: "#1C1F2A")
+    static let darkCard2 = Color(hex: "#252836")
+    static let darkBorder = Color(hex: "#2E3348")
+    static let darkInput = Color(hex: "#13161F")
+
+    // Semantic aliases (kept for back-compat with existing views)
+    static let primary = sage
+    static let secondary = amber
+    static let green = sageLight
+    static let red = alert
+    static let background = paper
+    static let cardBackground = white
+    static let textPrimary = ink
+    static let textSecondary = mid
 }
 
 // MARK: - Color Helper Init from Hex
@@ -454,35 +456,58 @@ extension Color {
 // Taken from the CSS design system
 
 struct T {
-    // Typography - font sizes in points
-    static let fontDisplay: CGFloat = 28
-    static let fontBody: CGFloat = 16
-    static let fontEyebrow: CGFloat = 12
-    static let fontDataLabel: CGFloat = 10
-    static let fontHeroNumber: CGFloat = 52
-    
-    // Spacing - standard spacing values in points
-    static let spacingXs: CGFloat = 4
-    static let spacingSm: CGFloat = 8
-    static let spacingMd: CGFloat = 16
-    static let spacingLg: CGFloat = 24
-    static let spacingXl: CGFloat = 32
-    
-    // Radius - corner radius
-    static let radiusSm: CGFloat = 4
-    static let radiusMd: CGFloat = 8
-    static let radiusLg: CGFloat = 12
-    
-    // Shadow - standard shadow
-    static let shadowSm = Shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 2)
-    static let shadowMd = Shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 4)
-    
-    // Transition - animation duration in seconds
-    static let transitionFast = 0.15
+    // Type scale (matches tally.css --tally-text-*)
+    static let textXs: CGFloat   = 11
+    static let textSm: CGFloat   = 13
+    static let textBase: CGFloat = 15
+    static let textMd: CGFloat   = 17
+    static let textLg: CGFloat   = 22
+    static let textXl: CGFloat   = 28
+    static let text2xl: CGFloat  = 38
+    static let text3xl: CGFloat  = 52
+
+    // Spacing scale (matches tally.css --tally-space-*)
+    static let space1: CGFloat  = 4
+    static let space2: CGFloat  = 8
+    static let space3: CGFloat  = 12
+    static let space4: CGFloat  = 16
+    static let space5: CGFloat  = 20
+    static let space6: CGFloat  = 24
+    static let space8: CGFloat  = 32
+    static let space10: CGFloat = 40
+    static let space12: CGFloat = 48
+
+    // Radius
+    static let radiusSm: CGFloat   = 8
+    static let radiusMd: CGFloat   = 12
+    static let radiusLg: CGFloat   = 16
+    static let radiusXl: CGFloat   = 24
+    static let radiusPill: CGFloat = 999
+
+    // Shadows
+    static let shadowCard  = Shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 2)
+    static let shadowModal = Shadow(color: Color.black.opacity(0.18), radius: 48, x: 0, y: 16)
+    static let shadowBtn   = Shadow(color: Color(hex: "#4A7C59").opacity(0.35), radius: 20, x: 0, y: 4)
+
+    // Back-compat aliases used by existing helpers
+    static let fontDisplay: CGFloat    = textXl
+    static let fontBody: CGFloat       = textBase
+    static let fontEyebrow: CGFloat    = textXs
+    static let fontDataLabel: CGFloat  = textXs
+    static let fontHeroNumber: CGFloat = text2xl
+    static let spacingXs: CGFloat = space1
+    static let spacingSm: CGFloat = space2
+    static let spacingMd: CGFloat = space4
+    static let spacingLg: CGFloat = space6
+    static let spacingXl: CGFloat = space8
+    static let shadowSm = shadowCard
+    static let shadowMd = shadowModal
+
+    // Transition
+    static let transitionFast = 0.18
     static let transitionNormal = 0.3
-    static let transitionSlow = 0.5
-    
-    // Shadow struct for convenience
+    static let transitionSlow  = 0.5
+
     struct Shadow {
         let color: Color
         let radius: CGFloat
@@ -494,20 +519,227 @@ struct T {
 // MARK: - Font Extensions for Common Text Styles
 
 extension Font {
+    // Display — DM Serif Display analogue via system serif design
     static var display: Font {
-        Font.system(size: T.fontDisplay, weight: .bold, design: .default)
+        Font.system(size: T.textXl, weight: .regular, design: .serif)
+    }
+    static var displayLg: Font {
+        Font.system(size: T.text2xl, weight: .regular, design: .serif)
+    }
+    static var displayItalic: Font {
+        Font.system(size: T.textXl, weight: .regular, design: .serif).italic()
+    }
+    static var strapline: Font {
+        Font.system(size: T.textXl, weight: .regular, design: .serif).italic()
     }
     static var bodyText: Font {
-        Font.system(size: T.fontBody, weight: .regular, design: .default)
+        Font.system(size: T.textBase, weight: .regular, design: .default)
     }
     static var eyebrow: Font {
-        Font.system(size: T.fontEyebrow, weight: .semibold, design: .default).smallCaps()
+        Font.system(size: T.textXs, weight: .bold, design: .default).smallCaps()
     }
     static var dataLabel: Font {
-        Font.system(size: T.fontDataLabel, weight: .regular, design: .default)
+        Font.system(size: T.textXs, weight: .semibold, design: .default).smallCaps()
     }
     static var heroNumber: Font {
-        Font.system(size: T.fontHeroNumber, weight: .heavy, design: .default)
+        Font.system(size: T.text2xl, weight: .heavy, design: .default)
+    }
+}
+
+// MARK: - Brand Components
+
+/// The Tally mark — four sage bars crossed by an amber diagonal (the "fifth" tally stroke).
+struct TallyLogo: View {
+    enum Size { case sm, md, lg }
+    var size: Size = .md
+    var barColor: Color = C.white
+    var crossColor: Color = C.amber
+
+    private var barWidth: CGFloat {
+        switch size { case .sm: 3; case .md: 4; case .lg: 7 }
+    }
+    private var barHeight: CGFloat {
+        switch size { case .sm: 20; case .md: 34; case .lg: 64 }
+    }
+    private var gap: CGFloat {
+        switch size { case .sm: 4; case .md: 6; case .lg: 11 }
+    }
+    private var crossHeight: CGFloat {
+        switch size { case .sm: 3; case .md: 4; case .lg: 7 }
+    }
+    private var barRadius: CGFloat {
+        switch size { case .sm: 2; case .md: 3; case .lg: 4 }
+    }
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: gap) {
+                ForEach(0..<4, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: barRadius)
+                        .fill(barColor)
+                        .frame(width: barWidth, height: barHeight)
+                }
+            }
+            RoundedRectangle(cornerRadius: barRadius)
+                .fill(crossColor)
+                .frame(height: crossHeight)
+                .padding(.horizontal, -gap)
+                .rotationEffect(.degrees(-20))
+        }
+        .frame(height: barHeight)
+        .fixedSize()
+    }
+}
+
+/// Rounded sage tile containing the Tally mark, with a subtle highlight orb.
+struct TallyIcon: View {
+    enum Size: CGFloat { case s29 = 29, s40 = 40, s76 = 76, s120 = 120, s180 = 180 }
+    var size: Size = .s40
+    var variant: Variant = .sage
+
+    enum Variant { case sage, dark, white }
+
+    private var background: Color {
+        switch variant { case .sage: C.sage; case .dark: C.ink; case .white: C.white }
+    }
+    private var orbColor: Color {
+        switch variant {
+        case .sage: C.sageLight
+        case .dark: Color(hex: "#2A2D28")
+        case .white: C.sagePale
+        }
+    }
+    private var logoBarColor: Color {
+        switch variant {
+        case .sage: C.white
+        case .dark: C.sageLight
+        case .white: C.sage
+        }
+    }
+    private var radius: CGFloat {
+        switch size {
+        case .s29: 7
+        case .s40: 10
+        case .s76: 18
+        case .s120: 28
+        case .s180: 40
+        }
+    }
+    private var logoSize: TallyLogo.Size {
+        switch size { case .s29, .s40: .sm; case .s76: .md; case .s120, .s180: .lg }
+    }
+    private var orbOpacity: Double {
+        variant == .dark ? 0.8 : 0.28
+    }
+
+    var body: some View {
+        ZStack {
+            background
+            GeometryReader { geo in
+                Circle()
+                    .fill(orbColor)
+                    .opacity(orbOpacity)
+                    .frame(width: geo.size.width * 0.65, height: geo.size.height * 0.65)
+                    .offset(x: geo.size.width * 0.5, y: -geo.size.height * 0.25)
+            }
+            TallyLogo(size: logoSize, barColor: logoBarColor)
+        }
+        .frame(width: size.rawValue, height: size.rawValue)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .shadow(color: size.rawValue >= 120 ? Color.black.opacity(0.28) : .clear,
+                radius: 30, x: 0, y: 24)
+    }
+}
+
+/// Icon + "Tally" wordmark with a small sage dot.
+struct TallyWordmark: View {
+    enum Layout { case standard, hero }
+    var layout: Layout = .standard
+    var onDark: Bool = false
+
+    private var fontSize: CGFloat { layout == .hero ? 64 : 32 }
+    private var dotSize: CGFloat { layout == .hero ? 11 : 7 }
+    private var iconSize: TallyIcon.Size { layout == .hero ? .s76 : .s40 }
+    private var nameColor: Color { onDark ? C.white : C.ink }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            TallyIcon(size: iconSize)
+            HStack(alignment: .top, spacing: 2) {
+                Text("Tally")
+                    .font(.system(size: fontSize, weight: .regular, design: .serif))
+                    .foregroundColor(nameColor)
+                    .tracking(-0.5)
+                Circle()
+                    .fill(C.sageLight)
+                    .frame(width: dotSize, height: dotSize)
+                    .padding(.top, fontSize * 0.15)
+            }
+        }
+    }
+}
+
+// MARK: - Brand Style Modifiers
+
+/// Pill-shaped primary CTA — sage fill, white text, brand shadow.
+struct TallyPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: T.textBase, weight: .bold))
+            .foregroundColor(C.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.horizontal, T.space6)
+            .background(C.sage)
+            .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+            .shadow(color: T.shadowBtn.color, radius: T.shadowBtn.radius,
+                    x: T.shadowBtn.x, y: T.shadowBtn.y)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.easeOut(duration: T.transitionFast), value: configuration.isPressed)
+    }
+}
+
+/// Ghost variant — sage outline on transparent.
+struct TallyGhostButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: T.textBase, weight: .bold))
+            .foregroundColor(C.sage)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.horizontal, T.space6)
+            .background(
+                RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                    .stroke(C.sage, lineWidth: 1.5)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.easeOut(duration: T.transitionFast), value: configuration.isPressed)
+    }
+}
+
+/// Brand text-field shell — white card, rule border, sage focus highlight (focus via .focused).
+struct TallyInputModifier: ViewModifier {
+    var focused: Bool = false
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: T.textBase))
+            .foregroundColor(C.ink)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(C.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: T.radiusMd, style: .continuous)
+                    .stroke(focused ? C.sage : C.rule, lineWidth: focused ? 2 : 1.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: T.radiusMd, style: .continuous))
+    }
+}
+
+extension View {
+    func tallyInput(focused: Bool = false) -> some View {
+        modifier(TallyInputModifier(focused: focused))
     }
 }
 
@@ -593,6 +825,7 @@ struct UkTaxTrackerView: View {
                         }
                         .pickerStyle(SegmentedPickerStyle())
                         .padding()
+                        .background(C.paper)
 
                         Divider()
 
@@ -633,6 +866,7 @@ struct UkTaxTrackerView: View {
                             }
                         }
                     }
+                    .tint(C.sage)
                     .onAppear(perform: loadEntries)
                     .sheet(isPresented: $showEntryModal) {
                         EntryModalView(entry: $editingEntry, onSave: saveEntry, onCancel: cancelEntry)
@@ -945,140 +1179,167 @@ struct SignUpView: View {
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var confirmPassword: String = ""
+    @FocusState private var focused: Field?
+    private enum Field { case email, password, confirm }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                Text("Create your Tally account")
-                    .font(.title).bold()
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 60)
-                    .padding(.horizontal)
-
-                VStack(spacing: 14) {
-                    TextField("Email", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .textFieldStyle(.roundedBorder)
-
-                    SecureField("Password (min 8 characters)", text: $password)
-                        .textContentType(.newPassword)
-                        .textFieldStyle(.roundedBorder)
-
-                    SecureField("Confirm password", text: $confirmPassword)
-                        .textContentType(.newPassword)
-                        .textFieldStyle(.roundedBorder)
+            VStack(spacing: T.space6) {
+                VStack(spacing: T.space4) {
+                    TallyWordmark()
+                        .padding(.top, T.space12)
+                    Text("Tax made human.")
+                        .font(.strapline)
+                        .foregroundColor(C.sage)
                 }
-                .padding(.horizontal, 32)
+
+                VStack(alignment: .leading, spacing: T.space2) {
+                    Text("Create your account")
+                        .font(.displayLg)
+                        .foregroundColor(C.ink)
+                    Text("A few details to get your tally going.")
+                        .font(.bodyText)
+                        .foregroundColor(C.mid)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, T.space8)
+                .padding(.top, T.space6)
+
+                VStack(spacing: T.space4) {
+                    LabeledField(label: "Email") {
+                        TextField("you@domain.com", text: $email)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                            .focused($focused, equals: .email)
+                            .tallyInput(focused: focused == .email)
+                    }
+                    LabeledField(label: "Password") {
+                        SecureField("At least 8 characters", text: $password)
+                            .textContentType(.newPassword)
+                            .focused($focused, equals: .password)
+                            .tallyInput(focused: focused == .password)
+                    }
+                    LabeledField(label: "Confirm password") {
+                        SecureField("Re-enter password", text: $confirmPassword)
+                            .textContentType(.newPassword)
+                            .focused($focused, equals: .confirm)
+                            .tallyInput(focused: focused == .confirm)
+                    }
+                }
+                .padding(.horizontal, T.space8)
 
                 if let error = loginManager.formError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(C.alert)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+                    FormErrorView(message: error)
                 }
 
-                Button {
+                Button("Create Account") {
                     loginManager.signUp(email: email, password: password, confirmPassword: confirmPassword)
-                } label: {
-                    Text("Create Account")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(C.primary)
-                        .cornerRadius(8)
                 }
-                .padding(.horizontal, 32)
+                .buttonStyle(TallyPrimaryButtonStyle())
+                .padding(.horizontal, T.space8)
 
                 if !loginManager.storedEmail.isEmpty {
                     Button("Already have an account? Sign In") {
                         loginManager.goToSignIn()
                     }
-                    .font(.subheadline)
+                    .font(.system(size: T.textSm, weight: .semibold))
+                    .foregroundColor(C.sage)
                 }
 
-                Spacer(minLength: 20)
+                Spacer(minLength: T.space8)
             }
         }
-        .background(C.background.edgesIgnoringSafeArea(.all))
+        .background(C.paper.ignoresSafeArea())
     }
 }
 
 struct VerifyEmailView: View {
     @ObservedObject var loginManager: LoginManager
     @State private var code: String = ""
+    @FocusState private var codeFocused: Bool
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                Text("Verify your email")
-                    .font(.title).bold()
-                    .padding(.top, 60)
+            VStack(spacing: T.space6) {
+                TallyWordmark()
+                    .padding(.top, T.space12)
 
-                Text("Enter the 6-digit code we sent to\n\(loginManager.storedEmail)")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(C.textSecondary)
-                    .padding(.horizontal, 32)
+                VStack(alignment: .leading, spacing: T.space2) {
+                    Text("Verify your email")
+                        .font(.displayLg)
+                        .foregroundColor(C.ink)
+                    Text("Enter the 6-digit code we sent to ")
+                        .font(.bodyText)
+                        .foregroundColor(C.mid)
+                    + Text(loginManager.storedEmail)
+                        .font(.system(size: T.textBase, weight: .semibold))
+                        .foregroundColor(C.ink)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, T.space8)
+                .padding(.top, T.space4)
 
                 if let pending = loginManager.pendingVerificationCode {
-                    VStack(spacing: 6) {
-                        Text("Demo code (no email sent yet)")
-                            .font(.caption2.smallCaps())
-                            .foregroundColor(C.textSecondary)
+                    VStack(spacing: T.space2) {
+                        Text("Demo code — no email service wired up yet")
+                            .font(.eyebrow)
+                            .foregroundColor(C.amber)
                         Text(pending)
-                            .font(.system(size: 28, weight: .bold, design: .monospaced))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(C.amberPale)
-                            .cornerRadius(6)
+                            .font(.system(size: T.textXl, weight: .bold, design: .monospaced))
+                            .foregroundColor(C.ink)
+                            .padding(.horizontal, T.space4)
+                            .padding(.vertical, T.space2)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(T.space4)
+                    .background(C.amberPale)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                            .stroke(C.amber.opacity(0.3), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+                    .padding(.horizontal, T.space8)
                 }
 
-                TextField("000000", text: $code)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.center)
-                    .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal, 60)
+                LabeledField(label: "Verification code") {
+                    TextField("000000", text: $code)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .focused($codeFocused)
+                        .font(.system(size: T.textLg, weight: .bold, design: .monospaced))
+                        .tracking(8)
+                        .tallyInput(focused: codeFocused)
+                }
+                .padding(.horizontal, T.space8)
 
                 if let error = loginManager.formError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(C.alert)
+                    FormErrorView(message: error)
                 }
 
-                Button {
+                Button("Verify Email") {
                     loginManager.verifyEmail(code: code)
-                } label: {
-                    Text("Verify Email")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(C.primary)
-                        .cornerRadius(8)
                 }
-                .padding(.horizontal, 32)
+                .buttonStyle(TallyPrimaryButtonStyle())
+                .padding(.horizontal, T.space8)
 
                 Button("Resend Code") {
                     loginManager.issueVerificationCode()
                 }
-                .font(.subheadline)
+                .buttonStyle(TallyGhostButtonStyle())
+                .padding(.horizontal, T.space8)
 
                 Button("Start over") {
                     loginManager.resetAccount()
                 }
-                .font(.caption)
-                .foregroundColor(C.textSecondary)
+                .font(.system(size: T.textSm, weight: .semibold))
+                .foregroundColor(C.mid)
 
-                Spacer(minLength: 20)
+                Spacer(minLength: T.space8)
             }
         }
-        .background(C.background.edgesIgnoringSafeArea(.all))
+        .background(C.paper.ignoresSafeArea())
     }
 }
 
@@ -1086,6 +1347,8 @@ struct SignInView: View {
     @ObservedObject var loginManager: LoginManager
     @State private var email: String = ""
     @State private var password: String = ""
+    @FocusState private var focused: Field?
+    private enum Field { case email, password }
 
     private var biometricLabel: String {
         switch loginManager.availableBiometryType {
@@ -1107,84 +1370,121 @@ struct SignInView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                Text("Welcome back")
-                    .font(.title).bold()
-                    .padding(.top, 60)
-
-                VStack(spacing: 14) {
-                    TextField("Email", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .textFieldStyle(.roundedBorder)
-
-                    SecureField("Password", text: $password)
-                        .textContentType(.password)
-                        .textFieldStyle(.roundedBorder)
+            VStack(spacing: T.space6) {
+                VStack(spacing: T.space4) {
+                    TallyWordmark()
+                        .padding(.top, T.space12)
+                    Text("Tax made human.")
+                        .font(.strapline)
+                        .foregroundColor(C.sage)
                 }
-                .padding(.horizontal, 32)
+
+                VStack(alignment: .leading, spacing: T.space2) {
+                    Text("Welcome back")
+                        .font(.displayLg)
+                        .foregroundColor(C.ink)
+                    Text("Sign in to keep your tally up to date.")
+                        .font(.bodyText)
+                        .foregroundColor(C.mid)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, T.space8)
+                .padding(.top, T.space6)
+
+                VStack(spacing: T.space4) {
+                    LabeledField(label: "Email") {
+                        TextField("you@domain.com", text: $email)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                            .focused($focused, equals: .email)
+                            .tallyInput(focused: focused == .email)
+                    }
+                    LabeledField(label: "Password") {
+                        SecureField("Your password", text: $password)
+                            .textContentType(.password)
+                            .focused($focused, equals: .password)
+                            .tallyInput(focused: focused == .password)
+                    }
+                }
+                .padding(.horizontal, T.space8)
 
                 if let error = loginManager.formError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(C.alert)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+                    FormErrorView(message: error)
                 }
 
-                Button {
+                Button("Sign In") {
                     loginManager.signIn(email: email, password: password)
-                } label: {
-                    Text("Sign In")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(C.primary)
-                        .cornerRadius(8)
                 }
-                .padding(.horizontal, 32)
+                .buttonStyle(TallyPrimaryButtonStyle())
+                .padding(.horizontal, T.space8)
 
                 if loginManager.canUseBiometrics {
                     Button {
                         loginManager.loginWithBiometrics()
                     } label: {
-                        HStack {
+                        HStack(spacing: T.space2) {
                             Image(systemName: biometricIcon)
                             Text(biometricLabel)
-                                .font(.headline)
                         }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(C.sage)
-                        .cornerRadius(8)
                     }
-                    .padding(.horizontal, 32)
+                    .buttonStyle(TallyGhostButtonStyle())
+                    .padding(.horizontal, T.space8)
                 }
 
                 if let bioError = loginManager.biometricError {
-                    Text(bioError)
-                        .font(.caption)
-                        .foregroundColor(C.alert)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+                    FormErrorView(message: bioError)
                 }
 
                 Button("New here? Create an account") {
                     loginManager.goToSignUp()
                 }
-                .font(.subheadline)
+                .font(.system(size: T.textSm, weight: .semibold))
+                .foregroundColor(C.sage)
 
-                Spacer(minLength: 20)
+                Spacer(minLength: T.space8)
             }
             .onAppear {
                 if email.isEmpty { email = loginManager.storedEmail }
             }
         }
-        .background(C.background.edgesIgnoringSafeArea(.all))
+        .background(C.paper.ignoresSafeArea())
+    }
+}
+
+// MARK: - Auth Form Helpers
+
+private struct LabeledField<Content: View>: View {
+    let label: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space2) {
+            Text(label)
+                .font(.system(size: T.textXs, weight: .bold))
+                .tracking(1.2)
+                .foregroundColor(C.mid)
+                .textCase(.uppercase)
+            content()
+        }
+    }
+}
+
+private struct FormErrorView: View {
+    let message: String
+    var body: some View {
+        HStack(spacing: T.space2) {
+            Image(systemName: "exclamationmark.circle.fill")
+            Text(message)
+                .font(.system(size: T.textSm, weight: .semibold))
+        }
+        .foregroundColor(C.alert)
+        .padding(.horizontal, T.space4)
+        .padding(.vertical, T.space2)
+        .background(C.alert.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusMd, style: .continuous))
+        .padding(.horizontal, T.space8)
     }
 }
 
