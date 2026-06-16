@@ -1462,6 +1462,37 @@ let ukIncomeTaxBands2025_26: [TaxBand] = [
     .init(name: "Additional rate",    upTo: nil,     rate: 0.45),
 ]
 
+/// Estimated VAT *included* in a gross expense, at the UK standard rate (20%).
+/// Used as a fallback when the entry doesn't carry an explicit VAT field.
+///   Net  = gross / 1.20
+///   VAT  = gross - net = gross / 6
+func estimateVATIncluded(in gross: Double) -> Double {
+    gross / 6.0
+}
+
+/// Estimated UK Income Tax owed on a taxable profit, 2025/26 bands.
+/// `personalAllowance` is the amount taxed at 0% (typically £12,570 for 1257L,
+/// 0 for BR / D0 / D1).
+func estimateIncomeTax(on profit: Double, personalAllowance: Double) -> Double {
+    let pa = max(personalAllowance, 0)
+    let basicEnd: Double = 50_270
+    let higherEnd: Double = 125_140
+    let inBasic       = max(min(profit, basicEnd)  - max(pa, 0), 0)
+    let inHigher      = max(min(profit, higherEnd) - basicEnd,    0)
+    let inAdditional  = max(profit - higherEnd, 0)
+    return inBasic * 0.20 + inHigher * 0.40 + inAdditional * 0.45
+}
+
+/// Estimated Class 4 National Insurance owed on a self-employed profit,
+/// 2025/26 bands (6% main, 2% upper).
+func estimateClass4NI(on profit: Double) -> Double {
+    let lower: Double = 12_570
+    let upper: Double = 50_270
+    let inMain  = max(min(profit, upper) - lower, 0)
+    let inUpper = max(profit - upper, 0)
+    return inMain * 0.06 + inUpper * 0.02
+}
+
 /// Class 4 NI bands for self-employed, 2025/26.
 struct NIBand: Identifiable {
     var id: String { name }
@@ -1885,6 +1916,42 @@ private struct SummaryCard: View {
                 .stroke(border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+/// Three derived estimate cards: VAT included in expenses, Income Tax owed,
+/// and Class 4 NI owed. All are fallback estimates — they're used when the
+/// entries themselves don't carry explicit VAT or tax-status detail.
+private struct EstimatesGroup: View {
+    let profit: Double
+    let expenses: Double
+    let personalAllowance: Double
+
+    var body: some View {
+        VStack(spacing: T.space4) {
+            SummaryCard(
+                label: "VAT included in expenses (est. @ 20%)",
+                value: fmt(estimateVATIncluded(in: expenses)),
+                accent: C.amber,
+                style: .amber
+            )
+            SummaryCard(
+                label: "Income Tax due (est.)",
+                value: fmt(estimateIncomeTax(on: profit, personalAllowance: personalAllowance)),
+                accent: C.alert,
+                style: .plain
+            )
+            SummaryCard(
+                label: "Class 4 NI due (est.)",
+                value: fmt(estimateClass4NI(on: profit)),
+                accent: C.sage,
+                style: .plain
+            )
+            Text("Estimates assume no explicit VAT or tax detail on entries: 20% VAT included on every expense, all profit treated as self-employed, current tax-code allowance applied to income tax.")
+                .font(.system(size: T.textXs))
+                .foregroundColor(C.mid)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -2364,6 +2431,10 @@ struct SummaryView: View {
                                 value: fmt(personalAllowance),
                                 accent: C.amber,
                                 style: .amber)
+
+                    EstimatesGroup(profit: profit,
+                                   expenses: expenses,
+                                   personalAllowance: personalAllowance)
 
                     TaxBandsReferenceCard()
                     NIBandsReferenceCard()
@@ -3333,6 +3404,12 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.9", date: "Jun 2026", bullets: [
+        "Notes field on entries — free-form multi-line text below the details",
+        "Swipe right on a row to duplicate; swipe left to delete (cleans up the attached PDF too)",
+        "Tax summary now shows three estimate cards: VAT included in expenses (20%), Income Tax due (current PA + 2025/26 bands), Class 4 NI due (6%/2%)",
+        "Estimates fall back to standard assumptions when entries don't carry explicit VAT or tax-status detail — refined later when per-entry VAT flags are added"
+    ]),
     .init(version: "0.8", date: "Jun 2026", bullets: [
         "Search bar on the Expenses + Income tabs (matches description and category)",
         "Category filter chips below the page header — tap to scope, tap again to clear",
