@@ -9,6 +9,7 @@ import FacebookLogin
 import LocalAuthentication
 import CryptoKit
 import UniformTypeIdentifiers
+import Charts
 
 // MARK: - Models
 
@@ -1907,6 +1908,12 @@ struct DashboardView: View {
                             .foregroundColor(C.mid)
                             .frame(maxWidth: .infinity)
                             .padding(.top, T.space6)
+                    } else {
+                        MonthlyProfitChart(entries: entries,
+                                           taxYear: taxYear,
+                                           usdRate: usdRate)
+                        CategoryBreakdownChart(entries: entries,
+                                               usdRate: usdRate)
                     }
                 }
                 .padding(.horizontal, T.space6)
@@ -2043,6 +2050,134 @@ private struct VATBreakdownChip: View {
                 .foregroundColor(color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Dashboard charts
+
+/// Monthly profit (income − expenses) across the active tax year, shown
+/// as a bar chart. Positive months render in sage, loss months in alert.
+private struct MonthlyProfitChart: View {
+    let entries: [Entry]
+    let taxYear: Int
+    let usdRate: Double
+
+    private struct Bucket: Identifiable {
+        let id = UUID()
+        let month: Date    // first day of the month
+        let income: Double
+        let expense: Double
+        var profit: Double { income - expense }
+    }
+
+    /// Build 12 buckets from 6 April (taxYear) to 5 April (taxYear+1).
+    private var buckets: [Bucket] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+        guard let start = cal.date(from: DateComponents(year: taxYear, month: 4, day: 6)) else { return [] }
+
+        return (0..<12).compactMap { offset in
+            guard let monthStart = cal.date(byAdding: .month, value: offset, to: start),
+                  let monthEnd = cal.date(byAdding: .month, value: 1, to: monthStart) else { return nil }
+            let inMonth = entries.filter { $0.date >= monthStart && $0.date < monthEnd }
+            let income  = inMonth.filter { $0.type == .income  }.reduce(0)  { $0 + $1.amountInGBP(usdRate: usdRate) }
+            let expense = inMonth.filter { $0.type == .expense }.reduce(0)  { $0 + $1.amountInGBP(usdRate: usdRate) }
+            return Bucket(month: monthStart, income: income, expense: expense)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space2) {
+            Text("Monthly profit")
+                .font(.eyebrow)
+                .foregroundColor(C.mid)
+            Chart {
+                ForEach(buckets) { b in
+                    BarMark(
+                        x: .value("Month", b.month, unit: .month),
+                        y: .value("Profit", b.profit)
+                    )
+                    .foregroundStyle(b.profit >= 0 ? C.sage : C.alert)
+                    .cornerRadius(4)
+                }
+            }
+            .frame(height: 180)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .month)) { value in
+                    AxisValueLabel(format: .dateTime.month(.narrow))
+                        .foregroundStyle(C.mid)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { _ in
+                    AxisGridLine().foregroundStyle(C.rule)
+                    AxisValueLabel().foregroundStyle(C.mid)
+                }
+            }
+        }
+        .padding(T.space5)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+/// Donut chart of expenses by category for the active tax year.
+private struct CategoryBreakdownChart: View {
+    let entries: [Entry]
+    let usdRate: Double
+
+    private struct Slice: Identifiable {
+        let id = UUID()
+        let category: String
+        let amount: Double
+    }
+
+    private var slices: [Slice] {
+        let expenses = entries.filter { $0.type == .expense }
+        let grouped = Dictionary(grouping: expenses, by: { $0.category.name })
+        return grouped.map { (name, items) in
+            let total = items.reduce(0) { $0 + $1.amountInGBP(usdRate: usdRate) }
+            return Slice(category: name, amount: total)
+        }
+        .filter { $0.amount > 0 }
+        .sorted { $0.amount > $1.amount }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space2) {
+            Text("Expenses by category")
+                .font(.eyebrow)
+                .foregroundColor(C.mid)
+            if slices.isEmpty {
+                Text("No expenses yet.")
+                    .font(.system(size: T.textSm))
+                    .foregroundColor(C.mid)
+                    .padding(.vertical, T.space4)
+            } else {
+                Chart(slices) { slice in
+                    SectorMark(
+                        angle: .value("Amount", slice.amount),
+                        innerRadius: .ratio(0.55),
+                        angularInset: 1.5
+                    )
+                    .foregroundStyle(by: .value("Category", slice.category))
+                    .cornerRadius(4)
+                }
+                .frame(height: 200)
+                .chartLegend(position: .bottom, alignment: .leading, spacing: T.space2)
+            }
+        }
+        .padding(T.space5)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
     }
 }
 
