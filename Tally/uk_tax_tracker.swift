@@ -2491,6 +2491,18 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Button {
+                        signOut()
+                    } label: {
+                        Label("Sign out", systemImage: "lock.fill")
+                    }
+                } header: {
+                    Text("Session")
+                } footer: {
+                    Text("Locks the app. Your data stays put — sign in again with your password (or Face ID).")
+                }
+
+                Section {
                     Button(role: .destructive) {
                         showDeleteConfirm = true
                     } label: {
@@ -2499,7 +2511,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Danger zone")
                 } footer: {
-                    Text("Permanently removes your profile, entries, attachments, and account. Returns you to sign-up.")
+                    Text("Permanently removes your profile, entries, attachments, and account.")
                 }
             }
             .navigationTitle("Settings")
@@ -2550,6 +2562,20 @@ struct SettingsView: View {
         if let encoded = try? JSONEncoder().encode(customCategories) {
             customCategoriesData = encoded
         }
+        dismiss()
+    }
+
+    private func signOut() {
+        // Persist any pending profile edits before locking, so the user doesn't
+        // lose changes when they tap Sign out without saving first.
+        profile.dateOfBirth = hasDob ? dobDate : nil
+        if let encoded = try? JSONEncoder().encode(profile) {
+            profileData = encoded
+        }
+        if let encoded = try? JSONEncoder().encode(customCategories) {
+            customCategoriesData = encoded
+        }
+        loginManager.signOut()
         dismiss()
     }
 
