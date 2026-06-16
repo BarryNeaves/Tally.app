@@ -1541,39 +1541,53 @@ struct EntryListView: View {
     var onAddNew: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
+        // Using a List (rather than ScrollView + Buttons) for the rows — Lists
+        // own their scroll gesture and don't compete with row taps, so long
+        // entry lists reliably scroll on real devices.
+        List {
+            Section {
                 TallyPageHeader(title: title,
                                 subtitle: "\(entries.count) \(entries.count == 1 ? "entry" : "entries")")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
 
-                VStack(spacing: T.space3) {
-                    if entries.isEmpty {
-                        Text("No \(title.lowercased()) yet")
-                            .font(.bodyText)
-                            .foregroundColor(C.mid)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, T.space8)
-                    } else {
-                        ForEach(entries) { entry in
-                            Button { onEdit(entry) } label: {
-                                EntryRow(entry: entry, usdRate: usdRate)
-                            }
-                            .buttonStyle(.plain)
-                        }
+            Section {
+                if entries.isEmpty {
+                    Text("No \(title.lowercased()) yet")
+                        .font(.bodyText)
+                        .foregroundColor(C.mid)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, T.space6)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                } else {
+                    ForEach(entries) { entry in
+                        EntryRow(entry: entry, usdRate: usdRate)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onEdit(entry) }
+                            .listRowInsets(EdgeInsets(top: 6, leading: T.space6,
+                                                      bottom: 6, trailing: T.space6))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
-
-                    Button {
-                        onAddNew()
-                    } label: {
-                        Label("Add \(title.dropLast())", systemImage: "plus.circle.fill")
-                    }
-                    .buttonStyle(TallyGhostButtonStyle())
-                    .padding(.top, T.space4)
                 }
-                .padding(.horizontal, T.space6)
-                .padding(.bottom, T.space8)
+            }
+
+            Section {
+                Button { onAddNew() } label: {
+                    Label("Add \(title.dropLast())", systemImage: "plus.circle.fill")
+                }
+                .buttonStyle(TallyGhostButtonStyle())
+                .listRowInsets(EdgeInsets(top: T.space4, leading: T.space6,
+                                          bottom: T.space8, trailing: T.space6))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(C.paper)
     }
 }
