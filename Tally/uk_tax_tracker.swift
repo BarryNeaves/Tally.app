@@ -592,13 +592,39 @@ func currentTaxYear() -> Int {
     let now = Date()
     let calendar = Calendar.current
     let components = calendar.dateComponents([.year, .month, .day], from: now)
-    guard let year = components.year, let month = components.month else { return 2026 }
-    // UK tax year runs from April 6 to April 5 next year
-    if month >= 4 {
+    guard let year = components.year, let month = components.month, let day = components.day else { return 2026 }
+    // UK tax year runs from April 6 to April 5 next year. Anything before
+    // April 6 belongs to the previous tax year.
+    if month > 4 || (month == 4 && day >= 6) {
         return year
-    } else {
-        return year - 1
     }
+    return year - 1
+}
+
+/// `true` if `date` falls within the UK tax year starting 6 April `taxYear`.
+func dateIsInTaxYear(_ date: Date, taxYear: Int) -> Bool {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+    guard let start = calendar.date(from: DateComponents(year: taxYear, month: 4, day: 6)),
+          let end = calendar.date(from: DateComponents(year: taxYear + 1, month: 4, day: 6))
+    else { return false }
+    return date >= start && date < end
+}
+
+/// Compact tax-year label, e.g. `26/27` for year 2026.
+func taxYearShortLabel(_ taxYear: Int) -> String {
+    let a = String(taxYear).suffix(2)
+    let b = String(taxYear + 1).suffix(2)
+    return "\(a)/\(b)"
+}
+
+/// Returns the UK tax-year integer that a date falls within.
+func calendarTaxYear(for date: Date) -> Int {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+    let comps = calendar.dateComponents([.year, .month, .day], from: date)
+    guard let y = comps.year, let m = comps.month, let d = comps.day else { return currentTaxYear() }
+    return (m > 4 || (m == 4 && d >= 6)) ? y : y - 1
 }
 
 // MARK: - Color Constants
@@ -1153,6 +1179,19 @@ struct UkExpenseTrackerView: View {
         return decoded
     }
 
+    /// Entries whose date falls inside the currently-selected tax year.
+    private var entriesForSelectedYear: [Entry] {
+        entries.filter { dateIsInTaxYear($0.date, taxYear: taxYear) }
+    }
+
+    /// Years that have at least one entry, plus the current year — used to keep
+    /// the picker compact rather than dumping 20 years of empty options.
+    private var availableTaxYears: [Int] {
+        let years = Set(entries.map { calendarTaxYear(for: $0.date) })
+            .union([currentTaxYear(), taxYear])
+        return years.sorted(by: >)
+    }
+
     // Authentication state managed by LoginManager
     @StateObject private var loginManager = LoginManager()
 
@@ -1173,14 +1212,14 @@ struct UkExpenseTrackerView: View {
 
                         Divider()
 
-                        // Tab content
+                        // Tab content — all aggregates use the year-filtered slice
                         Group {
                             switch selectedTab {
                             case 0:
-                                DashboardView(entries: entries, taxYear: taxYear, usdRate: usdRate)
+                                DashboardView(entries: entriesForSelectedYear, taxYear: taxYear, usdRate: usdRate)
                             case 1:
                                 EntryListView(
-                                    entries: entries.filter { $0.type == .expense },
+                                    entries: entriesForSelectedYear.filter { $0.type == .expense },
                                     title: "Expenses",
                                     usdRate: usdRate,
                                     onEdit: editEntry,
@@ -1188,21 +1227,21 @@ struct UkExpenseTrackerView: View {
                                 )
                             case 2:
                                 EntryListView(
-                                    entries: entries.filter { $0.type == .income },
+                                    entries: entriesForSelectedYear.filter { $0.type == .income },
                                     title: "Income",
                                     usdRate: usdRate,
                                     onEdit: editEntry,
                                     onAddNew: addNewEntry
                                 )
                             case 3:
-                                SummaryView(entries: entries, taxYear: taxYear, taxCode: taxCode, usdRate: usdRate)
+                                SummaryView(entries: entriesForSelectedYear, taxYear: taxYear, taxCode: taxCode, usdRate: usdRate)
                             default:
                                 Text("Unknown Tab")
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .navigationTitle("UK Expense Tracker")
+                    .navigationTitle("")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarLeading) {
@@ -1210,6 +1249,35 @@ struct UkExpenseTrackerView: View {
                                 showSettings = true
                             } label: {
                                 Image(systemName: "gearshape")
+                            }
+                        }
+                        ToolbarItem(placement: .principal) {
+                            Menu {
+                                ForEach(availableTaxYears, id: \.self) { year in
+                                    Button {
+                                        taxYear = year
+                                    } label: {
+                                        if year == taxYear {
+                                            Label("\(String(year))/\(String(year + 1))", systemImage: "checkmark")
+                                        } else {
+                                            Text("\(String(year))/\(String(year + 1))")
+                                        }
+                                    }
+                                }
+                                Divider()
+                                Button {
+                                    taxYear = currentTaxYear()
+                                } label: {
+                                    Label("Current tax year", systemImage: "calendar")
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("Tax year \(taxYearShortLabel(taxYear))")
+                                        .font(.system(size: T.textSm, weight: .semibold))
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption2.weight(.bold))
+                                }
+                                .foregroundColor(C.ink)
                             }
                         }
                         ToolbarItem(placement: .navigationBarTrailing) {
