@@ -32,6 +32,8 @@ struct Entry: Identifiable, Codable, Equatable {
     /// On a template: the date of the most recent auto-generated child.
     /// Used to skip forward instead of regenerating from `date` every pass.
     var lastGeneratedAt: Date?
+    /// Free-form notes — receipts, context, anything that doesn't fit elsewhere.
+    var notes: String?
 
     /// Resolved currency — older entries without the field default to GBP.
     var resolvedCurrency: Currency { currency ?? .gbp }
@@ -2350,6 +2352,7 @@ struct EntryModalView: View {
     @State private var currency: Currency = .gbp
     @State private var attachments: [PDFAttachment] = []
     @State private var showFileImporter = false
+    @State private var notesText: String = ""
 
     // Built-in expense categories. Identified by name (stable) — the UUID is just
     // for downstream Codable storage on Entry. SwiftUI Pickers select by name.
@@ -2485,6 +2488,13 @@ struct EntryModalView: View {
                 }
 
                 Section {
+                    TextField("Anything else — receipts, context, reminders", text: $notesText, axis: .vertical)
+                        .lineLimit(2...6)
+                } header: {
+                    Text("Notes")
+                }
+
+                Section {
                     ForEach(attachments) { attachment in
                         HStack(spacing: T.space2) {
                             Image(systemName: "doc.fill")
@@ -2546,7 +2556,8 @@ struct EntryModalView: View {
                         // the template, and editing a template keeps its
                         // last-generated marker so old cycles aren't re-spawned.
                         parentEntryId: entry?.parentEntryId,
-                        lastGeneratedAt: entry?.lastGeneratedAt
+                        lastGeneratedAt: entry?.lastGeneratedAt,
+                        notes: notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notesText
                     )
                     onSave(newEntry)
                 }
@@ -2579,12 +2590,14 @@ struct EntryModalView: View {
                     duration = entry.duration
                     currency = entry.resolvedCurrency
                     attachments = entry.attachments ?? []
+                    notesText = entry.notes ?? ""
                 } else {
                     selectedCategoryName = categories.first?.name ?? ""
                     recurrence = .none
                     duration = nil
                     currency = .gbp
                     attachments = []
+                    notesText = ""
                 }
             }
         }
