@@ -569,12 +569,14 @@ class LoginManager: ObservableObject {
         let entered = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let expected = pendingVerificationCode, entered == expected else {
             formError = "Incorrect verification code."
+            Haptics.error()
             return
         }
         defaults.set(true, forKey: emailVerifiedKey)
         pendingVerificationCode = nil
         formError = nil
         step = .signIn
+        Haptics.success()
     }
 
     // MARK: - Sign In
@@ -600,10 +602,12 @@ class LoginManager: ObservableObject {
         formError = nil
         biometricError = nil
         step = .authenticated
+        Haptics.success()
     }
 
     func signOut() {
         step = .signIn
+        Haptics.impact()
     }
 
     /// Wipes the local account. Intended for testing while there is no backend.
@@ -641,8 +645,10 @@ class LoginManager: ObservableObject {
                 if success {
                     self.biometricError = nil
                     self.step = .authenticated
+                    Haptics.success()
                 } else {
                     self.biometricError = evalError?.localizedDescription ?? "Biometric authentication failed."
+                    Haptics.error()
                 }
             }
         }
@@ -1408,6 +1414,26 @@ enum ExchangeRateService {
     }
 }
 
+// MARK: - Haptics
+
+/// Thin wrapper around UIKit's feedback generators. Each helper is safe to
+/// call from any thread but generators run best when triggered close to the
+/// taptic event itself, so we instantiate fresh each call.
+enum Haptics {
+    static func success() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+    static func warning() {
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    }
+    static func error() {
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .light) {
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+}
+
 // MARK: - Sample data
 
 /// Builds ~30 representative entries spread across the active tax year so
@@ -1900,10 +1926,12 @@ struct UkExpenseTrackerView: View {
         entries.append(contentsOf: sample)
         entries.sort { $0.date < $1.date }
         saveEntries()
+        Haptics.success()
         showToast("Loaded \(sample.count) sample entries")
     }
 
     private func duplicateEntry(_ entry: Entry) {
+        Haptics.impact()
         var copy = entry
         copy.id = UUID()
         copy.date = Date()
@@ -1920,6 +1948,7 @@ struct UkExpenseTrackerView: View {
         }
         entries.removeAll { $0.id == entry.id }
         saveEntries()
+        Haptics.warning()
     }
 
     private func saveEntry(_ entry: Entry) {
@@ -1930,6 +1959,7 @@ struct UkExpenseTrackerView: View {
         }
         saveEntries()
         showEntryModal = false
+        Haptics.success()
         showToast("Entry saved")
     }
 
@@ -3752,6 +3782,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.11", date: "Jun 2026", bullets: [
+        "Haptic feedback throughout — success tap on save / sign-in / Face ID, light impact on duplicate / sign-out, warning on delete, error on bad verification code"
+    ]),
     .init(version: "0.10", date: "Jun 2026", bullets: [
         "Per-entry VAT — Standard / Reduced / Zero-rated / Exempt / Unspecified",
         "Tax Summary VAT card now splits into Declared (from explicit rates) and Estimated (20% fallback for Unspecified)",
