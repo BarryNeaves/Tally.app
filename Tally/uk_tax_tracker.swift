@@ -38,6 +38,41 @@ struct Entry: Identifiable, Codable, Equatable {
         case .usd: usdRate > 0 ? amount / usdRate : amount
         }
     }
+
+    /// Multiplier applied to `amount` to get the total cost over the contracted period.
+    /// Only meaningful when BOTH a recurrence (≠ .none) and a duration are set —
+    /// otherwise the amount is treated as the full one-off cost (multiplier = 1).
+    var commitmentMultiplier: Double {
+        guard let recurrence,
+              recurrence != .none,
+              recurrence.timesPerYear > 0,
+              let duration else {
+            return 1
+        }
+        return recurrence.timesPerYear * duration.inYears
+    }
+
+    var hasCommitment: Bool { commitmentMultiplier != 1 }
+
+    /// Total cost over the duration (in the entry's own currency).
+    var totalAmount: Double { amount * commitmentMultiplier }
+
+    /// `totalAmount` normalised to GBP.
+    func totalAmountInGBP(usdRate: Double) -> Double {
+        switch resolvedCurrency {
+        case .gbp: totalAmount
+        case .usd: usdRate > 0 ? totalAmount / usdRate : totalAmount
+        }
+    }
+
+    /// True when a duration is shorter than a single recurrence cycle — usually a mistake.
+    var hasMismatchedDuration: Bool {
+        guard let recurrence,
+              recurrence != .none,
+              let cycleYears = recurrence.yearsPerCycle,
+              let duration else { return false }
+        return duration.inYears < cycleYears
+    }
 }
 
 struct Category: Identifiable, Codable, Hashable {
@@ -105,7 +140,42 @@ struct Category: Identifiable, Codable, Hashable {
 }
 
 enum Recurrence: String, Codable, CaseIterable {
-    case none, weekly, fortnightly, monthly, yearly
+    case none, weekly, fortnightly, monthly, yearly, threeYearly
+
+    var label: String {
+        switch self {
+        case .none:        "None"
+        case .weekly:      "Weekly"
+        case .fortnightly: "Fortnightly"
+        case .monthly:     "Monthly"
+        case .yearly:      "Yearly"
+        case .threeYearly: "Every 3 years"
+        }
+    }
+
+    /// How many billing cycles per year. `none` returns 0 (i.e. one-off).
+    var timesPerYear: Double {
+        switch self {
+        case .none:        0
+        case .weekly:      52
+        case .fortnightly: 26
+        case .monthly:     12
+        case .yearly:      1
+        case .threeYearly: 1.0 / 3.0
+        }
+    }
+
+    /// Years per single cycle — useful for sanity-checking against duration.
+    var yearsPerCycle: Double? {
+        switch self {
+        case .none:        nil
+        case .weekly:      1.0 / 52.0
+        case .fortnightly: 1.0 / 26.0
+        case .monthly:     1.0 / 12.0
+        case .yearly:      1.0
+        case .threeYearly: 3.0
+        }
+    }
 }
 
 /// Currency an entry is recorded in. Totals are always normalised to GBP.
@@ -131,6 +201,14 @@ enum Duration: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var label: String { rawValue }
+
+    var inYears: Double {
+        switch self {
+        case .oneMonth:   1.0 / 12.0
+        case .oneYear:    1.0
+        case .threeYears: 3.0
+        }
+    }
 }
 
 // MARK: - User Profile
@@ -1053,14 +1131,24 @@ struct UkExpenseTrackerView: View {
     @AppStorage("usdRate") private var usdRate: Double = 1.25
     @AppStorage("userProfileData") private var profileData: Data = Data()
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
+    @AppStorage("customCategoriesData") private var customCategoriesData: Data = Data()
 
     @State private var entries: [Entry] = []
     @State private var selectedTab = 0
     @State private var showEntryModal = false
     @State private var showSettings = false
+    @State private var showWhatsNew = false
+    @State private var showFAQ = false
     @State private var editingEntry: Entry?
     @State private var toastMessage: String?
     @State private var toastTimer: Timer?
+
+    private var customCategoryNames: [String] {
+        guard !customCategoriesData.isEmpty,
+              let decoded = try? JSONDecoder().decode([String].self, from: customCategoriesData)
+        else { return [] }
+        return decoded
+    }
 
     // Authentication state managed by LoginManager
     @StateObject private var loginManager = LoginManager()
@@ -1122,17 +1210,31 @@ struct UkExpenseTrackerView: View {
                             }
                         }
                         ToolbarItem(placement: .navigationBarTrailing) {
-                            Button(action: {
-                                addNewEntry()
-                            }) {
-                                Image(systemName: "plus")
+                            HStack(spacing: T.space3) {
+                                Menu {
+                                    Button {
+                                        showWhatsNew = true
+                                    } label: {
+                                        Label("What's New", systemImage: "sparkles")
+                                    }
+                                    Button {
+                                        showFAQ = true
+                                    } label: {
+                                        Label("FAQ", systemImage: "questionmark.circle")
+                                    }
+                                } label: {
+                                    Image(systemName: "questionmark.circle")
+                                }
+                                Button(action: addNewEntry) {
+                                    Image(systemName: "plus")
+                                }
                             }
                         }
                     }
                     .tint(C.sage)
                     .onAppear(perform: loadEntries)
                     .sheet(isPresented: $showEntryModal) {
-                        EntryModalView(entry: $editingEntry, usdRate: usdRate, onSave: saveEntry, onCancel: cancelEntry)
+                        EntryModalView(entry: $editingEntry, usdRate: usdRate, customCategoryNames: customCategoryNames, onSave: saveEntry, onCancel: cancelEntry)
                     }
                     .sheet(isPresented: $showSettings) {
                         SettingsView(
@@ -1140,9 +1242,12 @@ struct UkExpenseTrackerView: View {
                             entriesData: $entriesData,
                             appearanceMode: $appearanceMode,
                             taxCode: $taxCode,
+                            customCategoriesData: $customCategoriesData,
                             loginManager: loginManager
                         )
                     }
+                    .sheet(isPresented: $showWhatsNew) { WhatsNewView() }
+                    .sheet(isPresented: $showFAQ) { FAQView() }
                     .overlay {
                         if let message = toastMessage {
                             ToastView(message: message)
@@ -1237,12 +1342,12 @@ struct DashboardView: View {
 
     private var totalIncome: Double {
         entries.filter { $0.type == .income }
-            .map { $0.amountInGBP(usdRate: usdRate) }
+            .map { $0.totalAmountInGBP(usdRate: usdRate) }
             .reduce(0, +)
     }
     private var totalExpenses: Double {
         entries.filter { $0.type == .expense }
-            .map { $0.amountInGBP(usdRate: usdRate) }
+            .map { $0.totalAmountInGBP(usdRate: usdRate) }
             .reduce(0, +)
     }
     private var profit: Double { totalIncome - totalExpenses }
@@ -1505,7 +1610,7 @@ private struct EntryRow: View {
                         .font(.system(size: T.textXs))
                         .foregroundColor(C.mid)
                     if let recurrence = entry.recurrence, recurrence != .none {
-                        TallyPill(label: recurrence.rawValue.capitalized, style: .sage)
+                        TallyPill(label: recurrence.label, style: .sage)
                     }
                     if let duration = entry.duration {
                         TallyPill(label: duration.label, style: .amber)
@@ -1522,7 +1627,11 @@ private struct EntryRow: View {
                 Text("\(sign)\(fmt(entry.amount, currency: entry.resolvedCurrency))")
                     .font(.system(size: T.textMd, weight: .bold))
                     .foregroundColor(amountColor)
-                if entry.resolvedCurrency == .usd {
+                if entry.hasCommitment {
+                    Text("Total \(fmt(entry.totalAmountInGBP(usdRate: usdRate)))")
+                        .font(.system(size: T.textXs, weight: .semibold))
+                        .foregroundColor(C.sage)
+                } else if entry.resolvedCurrency == .usd {
                     Text("≈ \(fmt(entry.amountInGBP(usdRate: usdRate)))")
                         .font(.system(size: T.textXs))
                         .foregroundColor(C.usd)
@@ -1583,12 +1692,12 @@ struct SummaryView: View {
 
     private var income: Double {
         entries.filter { $0.type == .income }
-            .map { $0.amountInGBP(usdRate: usdRate) }
+            .map { $0.totalAmountInGBP(usdRate: usdRate) }
             .reduce(0, +)
     }
     private var expenses: Double {
         entries.filter { $0.type == .expense }
-            .map { $0.amountInGBP(usdRate: usdRate) }
+            .map { $0.totalAmountInGBP(usdRate: usdRate) }
             .reduce(0, +)
     }
     private var profit: Double { income - expenses }
@@ -1644,6 +1753,7 @@ struct SummaryView: View {
 struct EntryModalView: View {
     @Binding var entry: Entry?
     var usdRate: Double
+    var customCategoryNames: [String] = []
     var onSave: (Entry) -> Void
     var onCancel: () -> Void
 
@@ -1657,8 +1767,8 @@ struct EntryModalView: View {
     @State private var attachments: [PDFAttachment] = []
     @State private var showFileImporter = false
 
-    // Static categories — expense categories include common SaaS / online-business buckets.
-    let categories = [
+    // Built-in expense categories include common SaaS / online-business buckets.
+    private let builtInCategories = [
         Category(id: UUID(), name: "General",          colorName: "primary"),
         Category(id: UUID(), name: "Food",             colorName: "orange"),
         Category(id: UUID(), name: "Transport",        colorName: "blue"),
@@ -1670,12 +1780,32 @@ struct EntryModalView: View {
         Category(id: UUID(), name: "GenAI",            colorName: "mint")
     ]
 
+    private var categories: [Category] {
+        let custom = customCategoryNames.map { name in
+            Category(id: UUID(), name: name, colorName: "sage")
+        }
+        return builtInCategories + custom
+    }
+
     @State private var selectedCategory: Category?
 
     private var amountAsDouble: Double? { Double(amountText) }
     private var gbpEquivalent: Double? {
         guard let amount = amountAsDouble, currency == .usd, usdRate > 0 else { return nil }
         return amount / usdRate
+    }
+
+    /// Live preview of the commitment total + mismatch state, based on the current form inputs.
+    private var previewCommitment: (shouldShow: Bool, total: Double, mismatched: Bool) {
+        guard let amount = amountAsDouble,
+              recurrence != .none,
+              recurrence.timesPerYear > 0,
+              let dur = duration else {
+            return (false, 0, false)
+        }
+        let multiplier = recurrence.timesPerYear * dur.inYears
+        let mismatched = (recurrence.yearsPerCycle ?? 0) > dur.inYears
+        return (true, amount * multiplier, mismatched)
     }
 
     var body: some View {
@@ -1717,7 +1847,7 @@ struct EntryModalView: View {
                     }
                     Picker("Recurrence", selection: $recurrence) {
                         ForEach(Recurrence.allCases, id: \.self) { rec in
-                            Text(rec.rawValue.capitalized).tag(rec)
+                            Text(rec.label).tag(rec)
                         }
                     }
                     Picker("Duration", selection: $duration) {
@@ -1725,6 +1855,22 @@ struct EntryModalView: View {
                         ForEach(Duration.allCases) { d in
                             Text(d.label).tag(Duration?.some(d))
                         }
+                    }
+                    if previewCommitment.shouldShow {
+                        HStack {
+                            Text("Total over term")
+                                .foregroundColor(C.mid)
+                            Spacer()
+                            Text(fmt(previewCommitment.total, currency: currency))
+                                .font(.system(.body, weight: .semibold))
+                                .foregroundColor(C.sage)
+                        }
+                    }
+                    if previewCommitment.mismatched {
+                        Label("Duration is shorter than one \(recurrence.label.lowercased()) cycle — check your figures.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(C.amber)
                     }
                 }
 
@@ -2182,6 +2328,7 @@ struct SettingsView: View {
     @Binding var entriesData: Data
     @Binding var appearanceMode: AppearanceMode
     @Binding var taxCode: String
+    @Binding var customCategoriesData: Data
     @ObservedObject var loginManager: LoginManager
     @Environment(\.dismiss) private var dismiss
 
@@ -2189,6 +2336,8 @@ struct SettingsView: View {
     @State private var dobDate = Date()
     @State private var hasDob = false
     @State private var showDeleteConfirm = false
+    @State private var customCategories: [String] = []
+    @State private var newCategoryName: String = ""
 
     private var personalAllowance: Int? {
         parseTaxCode(taxCode)
@@ -2254,6 +2403,29 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    ForEach(customCategories, id: \.self) { name in
+                        Text(name)
+                    }
+                    .onDelete { offsets in
+                        customCategories.remove(atOffsets: offsets)
+                    }
+                    HStack {
+                        TextField("Add a custom category", text: $newCategoryName)
+                        Button {
+                            addCategory()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(C.sage)
+                        }
+                        .disabled(newCategoryName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                } header: {
+                    Text("Custom categories")
+                } footer: {
+                    Text("Added categories appear in the entry form picker alongside the built-in ones.")
+                }
+
+                Section {
                     Picker("Theme", selection: $appearanceMode) {
                         ForEach(AppearanceMode.allCases) { mode in
                             Text(mode.label).tag(mode)
@@ -2310,6 +2482,10 @@ struct SettingsView: View {
                 hasDob = true
             }
         }
+        if !customCategoriesData.isEmpty,
+           let decoded = try? JSONDecoder().decode([String].self, from: customCategoriesData) {
+            customCategories = decoded
+        }
     }
 
     private func save() {
@@ -2317,15 +2493,250 @@ struct SettingsView: View {
         if let encoded = try? JSONEncoder().encode(profile) {
             profileData = encoded
         }
+        if let encoded = try? JSONEncoder().encode(customCategories) {
+            customCategoriesData = encoded
+        }
         dismiss()
+    }
+
+    private func addCategory() {
+        let trimmed = newCategoryName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !customCategories.contains(trimmed) else { return }
+        customCategories.append(trimmed)
+        newCategoryName = ""
     }
 
     private func deleteAll() {
         AttachmentStore.shared.deleteAll()
         profileData = Data()
         entriesData = Data()
+        customCategoriesData = Data()
         loginManager.resetAccount()
         dismiss()
+    }
+}
+
+// MARK: - What's New
+
+private struct ReleaseNote: Identifiable {
+    let id = UUID()
+    let version: String
+    let date: String
+    let bullets: [String]
+}
+
+private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.6", date: "Jun 2026", bullets: [
+        "New recurrence: Every 3 years",
+        "Recurrence × Duration now produces a commitment total — Dashboard & Tax summary sum the full term",
+        "Live total preview in the entry form, with a warning when duration is shorter than one cycle",
+        "Custom categories — add your own from Settings",
+        "What's New + FAQ available from the help menu"
+    ]),
+    .init(version: "0.5", date: "Jun 2026", bullets: [
+        "UK Income Tax + Class 4 NI band reference cards on Tax Summary",
+        "Tax-code quick-pick menu in Settings",
+        "Bug fix: parseTaxCode now returns the correct personal allowance"
+    ]),
+    .init(version: "0.4", date: "Jun 2026", bullets: [
+        "Settings: Name, NI number, Address, Date of birth",
+        "Light / Dark / System appearance toggle",
+        "Delete all data with confirmation"
+    ]),
+    .init(version: "0.3", date: "Jun 2026", bullets: [
+        "Currency on each entry (GBP / USD) with live GBP equivalent",
+        "PDF attachments — pick, share, swipe-to-delete",
+        "Categories for Domain names, Web hosting, SSL Certificates, GenAI"
+    ]),
+    .init(version: "0.2", date: "Jun 2026", bullets: [
+        "tally.css brand system applied throughout",
+        "Wordmark + \"Tax made human.\" strap on every page",
+        "Renamed to UK Expense Tracker"
+    ]),
+    .init(version: "0.1", date: "Jun 2026", bullets: [
+        "Email sign-up + verification + sign-in",
+        "Face ID / Touch ID / Optic ID sign-in after first password sign-in"
+    ])
+]
+
+struct WhatsNewView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 0) {
+                    TallyPageHeader(title: "What's New",
+                                    subtitle: "Recent improvements to Tally")
+
+                    VStack(spacing: T.space4) {
+                        ForEach(releaseNotes) { note in
+                            ReleaseCard(note: note)
+                        }
+                    }
+                    .padding(.horizontal, T.space6)
+                    .padding(.bottom, T.space8)
+                }
+            }
+            .background(C.paper)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct ReleaseCard: View {
+    let note: ReleaseNote
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space3) {
+            HStack {
+                Text("v\(note.version)")
+                    .font(.system(size: T.textMd, weight: .bold))
+                    .foregroundColor(C.ink)
+                Spacer()
+                Text(note.date)
+                    .font(.eyebrow)
+                    .foregroundColor(C.sage)
+            }
+            VStack(alignment: .leading, spacing: T.space2) {
+                ForEach(note.bullets, id: \.self) { bullet in
+                    HStack(alignment: .top, spacing: T.space2) {
+                        Circle()
+                            .fill(C.sageLight)
+                            .frame(width: 6, height: 6)
+                            .padding(.top, 7)
+                        Text(bullet)
+                            .font(.system(size: T.textSm))
+                            .foregroundColor(C.mid)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(T.space5)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+// MARK: - FAQ
+
+private struct FAQItem: Identifiable {
+    let id = UUID()
+    let question: String
+    let answer: String
+}
+
+private let faqItems: [FAQItem] = [
+    .init(
+        question: "How is my data stored?",
+        answer: "Everything stays on your device. Entries, your profile, attachments, and your account live in UserDefaults and the app's Documents folder — nothing is sent to a server."
+    ),
+    .init(
+        question: "What does Recurrence × Duration mean for the total?",
+        answer: "When an entry has both — for example monthly £10 for 1 year, or yearly £100 for 3 years — the Dashboard and Tax summary count the full committed amount (£120 and £300 respectively). Without a duration, only the per-period amount is recorded."
+    ),
+    .init(
+        question: "How does USD → GBP conversion work?",
+        answer: "Each entry remembers its own currency. Totals are normalised to GBP using the `usdRate` setting, which is the standard GBP/USD market quote (USD per 1 GBP). The default is 1.25, meaning 1 GBP ≈ 1.25 USD."
+    ),
+    .init(
+        question: "Where does the personal allowance come from?",
+        answer: "Your tax code in Settings drives it. The digits × 10 gives the allowance (so 1257L → £12,570). Special codes (BR, D0, D1, NT, 0T) are treated as zero allowance — the whole income is taxed at the band's flat rate."
+    ),
+    .init(
+        question: "How do I attach a receipt?",
+        answer: "Open an entry → Attachments section → tap \"Add PDF\". The PDF is copied into Tally's sandbox. Tap the share icon to export it, or swipe left to delete it (and the underlying file)."
+    ),
+    .init(
+        question: "Why doesn't Google / Facebook sign-in work yet?",
+        answer: "The SDKs are wired up, but you still need to add an OAuth client ID (Google) or app ID/client token (Facebook) plus the matching URL Type. See the README's Configuration section for the exact steps."
+    ),
+    .init(
+        question: "Will my Face ID button always be there?",
+        answer: "Only after you've signed in with a password at least once. Biometrics unlock an existing session — they don't create one. If you delete all data, you'll need to sign in with a password again before Face ID reappears."
+    ),
+    .init(
+        question: "How do I delete everything?",
+        answer: "Settings → Danger zone → Delete all data. This permanently removes your profile, entries, attachments, custom categories, and account. You'll be returned to Sign Up."
+    )
+]
+
+struct FAQView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 0) {
+                    TallyPageHeader(title: "FAQ", subtitle: "Quick answers to common questions")
+
+                    VStack(spacing: T.space3) {
+                        ForEach(faqItems) { item in
+                            FAQRow(item: item)
+                        }
+                    }
+                    .padding(.horizontal, T.space6)
+                    .padding(.bottom, T.space8)
+                }
+            }
+            .background(C.paper)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct FAQRow: View {
+    let item: FAQItem
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space3) {
+            Button {
+                withAnimation(.easeInOut(duration: T.transitionFast)) {
+                    expanded.toggle()
+                }
+            } label: {
+                HStack(alignment: .top) {
+                    Text(item.question)
+                        .font(.system(size: T.textSm, weight: .bold))
+                        .foregroundColor(C.ink)
+                        .multilineTextAlignment(.leading)
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(C.sage)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                Text(item.answer)
+                    .font(.system(size: T.textSm))
+                    .foregroundColor(C.mid)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(T.space4)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
     }
 }
 
