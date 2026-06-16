@@ -355,9 +355,20 @@ class LoginManager: ObservableObject {
         return context.biometryType
     }
 
-    /// Face ID/Touch ID is only offered after at least one successful password sign-in.
+    /// User-controllable toggle in Settings. Defaults to `true` (the
+    /// previous always-on behaviour) on first read, so existing users
+    /// don't lose Face ID after upgrading.
+    var biometricEnabled: Bool {
+        if defaults.object(forKey: "biometricEnabled") == nil { return true }
+        return defaults.bool(forKey: "biometricEnabled")
+    }
+
+    /// Face ID/Touch ID is only offered when:
+    ///  - the device supports + has biometrics enrolled
+    ///  - the user has signed in at least once with a password
+    ///  - the Settings toggle is on
     var canUseBiometrics: Bool {
-        hasSignedInOnce && availableBiometryType != .none
+        biometricEnabled && hasSignedInOnce && availableBiometryType != .none
     }
 
     init() {
@@ -2732,6 +2743,25 @@ struct SettingsView: View {
     @State private var customCategories: [String] = []
     @State private var newCategoryName: String = ""
     @State private var isRefreshingRate = false
+    @AppStorage("biometricEnabled") private var biometricEnabled: Bool = true
+
+    private var biometricToggleLabel: String {
+        switch loginManager.availableBiometryType {
+        case .faceID:  "Enable Face ID"
+        case .touchID: "Enable Touch ID"
+        case .opticID: "Enable Optic ID"
+        default:       "Enable biometric sign-in"
+        }
+    }
+
+    private var biometricToggleIcon: String {
+        switch loginManager.availableBiometryType {
+        case .faceID:  "faceid"
+        case .touchID: "touchid"
+        case .opticID: "opticid"
+        default:       "lock.shield"
+        }
+    }
 
     private var rateLastUpdatedLabel: String {
         guard usdRateUpdatedAt > 0 else { return "never" }
@@ -2889,6 +2919,11 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if loginManager.availableBiometryType != .none {
+                        Toggle(isOn: $biometricEnabled) {
+                            Label(biometricToggleLabel, systemImage: biometricToggleIcon)
+                        }
+                    }
                     Button {
                         signOut()
                     } label: {
@@ -2897,7 +2932,11 @@ struct SettingsView: View {
                 } header: {
                     Text("Session")
                 } footer: {
-                    Text("Locks the app. Your data stays put — sign in again with your password (or Face ID).")
+                    if loginManager.availableBiometryType == .none {
+                        Text("Locks the app. Your data stays put — sign in again with your password.")
+                    } else {
+                        Text("Locks the app and (when biometrics are enabled) shows the \(biometricToggleLabel.replacingOccurrences(of: "Enable ", with: "")) button on the Sign In screen.")
+                    }
                 }
 
                 Section {
@@ -3018,6 +3057,19 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.7", date: "Jun 2026", bullets: [
+        "Sign out from Settings — locks the app without wiping data",
+        "Tax year picker in the nav bar; every tab filters to the active year",
+        "Amount field accepts arithmetic (e.g. 12.99 + 5.50) with a live preview",
+        "CSV export of every entry from Settings → Data",
+        "Live USD rate fetch — refreshes every 12h, manual refresh in Settings",
+        "Face ID / Touch ID / Optic ID toggle in Settings → Session",
+        "Entry rows: cleaner two-line layout, combined recurrence·duration pill",
+        "Long lists scroll reliably (List replaces ScrollView+Buttons)",
+        "Custom categories now reliably select and save",
+        "Sign In is the default landing screen; \"Already have an account?\" always visible on Sign Up",
+        "Verification demo code stays readable in dark mode"
+    ]),
     .init(version: "0.6", date: "Jun 2026", bullets: [
         "New recurrence: Every 3 years",
         "Recurrence × Duration now produces a commitment total — Dashboard & Tax summary sum the full term",
