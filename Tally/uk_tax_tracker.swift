@@ -1550,7 +1550,9 @@ struct UkExpenseTrackerView: View {
                                     title: "Expenses",
                                     usdRate: usdRate,
                                     onEdit: editEntry,
-                                    onAddNew: addNewEntry
+                                    onAddNew: addNewEntry,
+                                    onDuplicate: duplicateEntry,
+                                    onDelete: deleteEntry
                                 )
                             case 2:
                                 EntryListView(
@@ -1558,7 +1560,9 @@ struct UkExpenseTrackerView: View {
                                     title: "Income",
                                     usdRate: usdRate,
                                     onEdit: editEntry,
-                                    onAddNew: addNewEntry
+                                    onAddNew: addNewEntry,
+                                    onDuplicate: duplicateEntry,
+                                    onDelete: deleteEntry
                                 )
                             case 3:
                                 SummaryView(entries: entriesForSelectedYear, taxYear: taxYear, taxCode: taxCode, usdRate: usdRate)
@@ -1736,6 +1740,27 @@ struct UkExpenseTrackerView: View {
     private func editEntry(_ entry: Entry) {
         editingEntry = entry
         showEntryModal = true
+    }
+
+    /// Open a fresh draft pre-filled from `entry`. Attachments + auto-gen
+    /// lineage are intentionally dropped so the duplicate is a true new entry.
+    private func duplicateEntry(_ entry: Entry) {
+        var copy = entry
+        copy.id = UUID()
+        copy.date = Date()
+        copy.attachments = nil
+        copy.parentEntryId = nil
+        copy.lastGeneratedAt = nil
+        editingEntry = copy
+        showEntryModal = true
+    }
+
+    private func deleteEntry(_ entry: Entry) {
+        if let attachments = entry.attachments {
+            for a in attachments { AttachmentStore.shared.delete(a) }
+        }
+        entries.removeAll { $0.id == entry.id }
+        saveEntries()
     }
 
     private func saveEntry(_ entry: Entry) {
@@ -1970,6 +1995,8 @@ struct EntryListView: View {
     var usdRate: Double
     var onEdit: (Entry) -> Void
     var onAddNew: () -> Void
+    var onDuplicate: ((Entry) -> Void)? = nil
+    var onDelete: ((Entry) -> Void)? = nil
 
     @State private var searchText: String = ""
     @State private var selectedCategoryFilter: String? = nil
@@ -2062,6 +2089,25 @@ struct EntryListView: View {
                                                       bottom: 6, trailing: T.space6))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                if let onDuplicate {
+                                    Button {
+                                        onDuplicate(entry)
+                                    } label: {
+                                        Label("Duplicate", systemImage: "plus.square.on.square")
+                                    }
+                                    .tint(C.sage)
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if let onDelete {
+                                    Button(role: .destructive) {
+                                        onDelete(entry)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
                     }
                 }
             }
