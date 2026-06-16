@@ -1225,6 +1225,47 @@ extension DateFormatter {
     }()
 }
 
+// MARK: - Exchange Rate Service
+
+/// Fetches the latest GBP→USD rate.
+///
+/// Default path: calls the Tally backend at `https://logitude.app/tally/api/usd-rate`,
+/// which is expected to return JSON of the form `{"rate": 1.27, "asOf": "2026-06-16"}`.
+/// If that fails (e.g. early development before backend is live), falls back to
+/// the public `exchangerate.host` API.
+enum ExchangeRateService {
+    static let tallyBackendURL = URL(string: "https://logitude.app/tally/api/usd-rate")!
+    static let fallbackURL = URL(string: "https://api.exchangerate.host/latest?base=GBP&symbols=USD")!
+
+    struct TallyResponse: Decodable { let rate: Double }
+    struct FallbackResponse: Decodable { let rates: [String: Double] }
+
+    static func latestUSDPerGBP() async -> Double? {
+        if let r = await fetch(tallyBackendURL, decode: TallyResponse.self)?.rate {
+            return r
+        }
+        if let payload = await fetch(fallbackURL, decode: FallbackResponse.self),
+           let r = payload.rates["USD"] {
+            return r
+        }
+        return nil
+    }
+
+    private static func fetch<T: Decodable>(_ url: URL, decode: T.Type) async -> T? {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return nil
+            }
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+}
+
 // MARK: - CSV Export
 
 enum EntryCSV {
@@ -1344,6 +1385,7 @@ struct UkExpenseTrackerView: View {
     @AppStorage("taxYear") private var taxYear: Int = currentTaxYear()
     @AppStorage("taxCode") private var taxCode: String = "1257L"
     @AppStorage("usdRate") private var usdRate: Double = 1.25
+    @AppStorage("usdRateUpdatedAt") private var usdRateUpdatedAt: Double = 0
     @AppStorage("userProfileData") private var profileData: Data = Data()
     @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("customCategoriesData") private var customCategoriesData: Data = Data()
@@ -1489,7 +1531,10 @@ struct UkExpenseTrackerView: View {
                         }
                     }
                     .tint(C.sage)
-                    .onAppear(perform: loadEntries)
+                    .onAppear {
+                        loadEntries()
+                        refreshExchangeRateIfStale()
+                    }
                     .sheet(isPresented: $showEntryModal) {
                         EntryModalView(entry: $editingEntry, usdRate: usdRate, customCategoryNames: customCategoryNames, onSave: saveEntry, onCancel: cancelEntry)
                     }
@@ -1500,8 +1545,9 @@ struct UkExpenseTrackerView: View {
                             appearanceMode: $appearanceMode,
                             taxCode: $taxCode,
                             customCategoriesData: $customCategoriesData,
+                            usdRate: $usdRate,
+                            usdRateUpdatedAt: $usdRateUpdatedAt,
                             entries: entries,
-                            usdRate: usdRate,
                             loginManager: loginManager
                         )
                     }
@@ -1534,6 +1580,22 @@ struct UkExpenseTrackerView: View {
         } catch {
             entries = []
             showToast("Failed to load entries")
+        }
+    }
+
+    /// Refreshes the USD rate once per 12-hour window. Silent on failure —
+    /// the previously cached rate keeps working.
+    private func refreshExchangeRateIfStale() {
+        let cutoff: TimeInterval = 12 * 60 * 60
+        let age = Date().timeIntervalSince1970 - usdRateUpdatedAt
+        guard age > cutoff else { return }
+        Task {
+            if let rate = await ExchangeRateService.latestUSDPerGBP(), rate > 0 {
+                await MainActor.run {
+                    usdRate = rate
+                    usdRateUpdatedAt = Date().timeIntervalSince1970
+                }
+            }
         }
     }
 
@@ -2657,8 +2719,9 @@ struct SettingsView: View {
     @Binding var appearanceMode: AppearanceMode
     @Binding var taxCode: String
     @Binding var customCategoriesData: Data
+    @Binding var usdRate: Double
+    @Binding var usdRateUpdatedAt: Double
     var entries: [Entry]
-    var usdRate: Double
     @ObservedObject var loginManager: LoginManager
     @Environment(\.dismiss) private var dismiss
 
@@ -2668,6 +2731,15 @@ struct SettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var customCategories: [String] = []
     @State private var newCategoryName: String = ""
+    @State private var isRefreshingRate = false
+
+    private var rateLastUpdatedLabel: String {
+        guard usdRateUpdatedAt > 0 else { return "never" }
+        let date = Date(timeIntervalSince1970: usdRateUpdatedAt)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
 
     private var exportURL: URL? {
         let csv = EntryCSV.makeCSV(entries: entries, usdRate: usdRate)
@@ -2782,10 +2854,38 @@ struct SettingsView: View {
                         Label("Export entries as CSV", systemImage: "square.and.arrow.up")
                             .foregroundColor(C.mid)
                     }
+
+                    HStack {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("USD rate")
+                                Text("Updated \(rateLastUpdatedLabel)")
+                                    .font(.caption)
+                                    .foregroundColor(C.mid)
+                            }
+                        } icon: {
+                            Image(systemName: "sterlingsign.arrow.circlepath")
+                        }
+                        Spacer()
+                        Text(String(format: "%.4f", usdRate))
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(C.sage)
+                        Button {
+                            refreshRate()
+                        } label: {
+                            if isRefreshingRate {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isRefreshingRate)
+                    }
                 } header: {
                     Text("Data")
                 } footer: {
-                    Text("Opens the share sheet with a CSV of every entry — date, description, type, category, amount, currency, GBP equivalent, recurrence/duration, and attachment count.")
+                    Text("Export every entry as CSV — date, type, category, amount, currency, GBP equivalent, recurrence/duration, attachment count. The USD rate (USD per 1 GBP) drives currency conversion; it auto-refreshes every 12 hours and can be refreshed manually from here.")
                 }
 
                 Section {
@@ -2861,6 +2961,20 @@ struct SettingsView: View {
             customCategoriesData = encoded
         }
         dismiss()
+    }
+
+    private func refreshRate() {
+        isRefreshingRate = true
+        Task {
+            let rate = await ExchangeRateService.latestUSDPerGBP()
+            await MainActor.run {
+                isRefreshingRate = false
+                if let r = rate, r > 0 {
+                    usdRate = r
+                    usdRateUpdatedAt = Date().timeIntervalSince1970
+                }
+            }
+        }
     }
 
     private func signOut() {
