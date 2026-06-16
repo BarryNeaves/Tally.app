@@ -26,6 +26,12 @@ struct Entry: Identifiable, Codable, Equatable {
     var duration: Duration?
     var attachments: [PDFAttachment]?
     var currency: Currency?
+    /// Set on entries that were auto-generated from a recurring template.
+    /// References the template's `id`. User-created entries leave this nil.
+    var parentEntryId: UUID?
+    /// On a template: the date of the most recent auto-generated child.
+    /// Used to skip forward instead of regenerating from `date` every pass.
+    var lastGeneratedAt: Date?
 
     /// Resolved currency — older entries without the field default to GBP.
     var resolvedCurrency: Currency { currency ?? .gbp }
@@ -176,6 +182,86 @@ enum Recurrence: String, Codable, CaseIterable {
         case .threeYearly: 3.0
         }
     }
+
+    /// Returns the date one recurrence cycle after `date`. Uses calendar
+    /// arithmetic so month-end edge cases (e.g. 31 Jan + 1 month) collapse
+    /// cleanly to the last day of the following month.
+    func nextDate(after date: Date, calendar: Calendar = .current) -> Date? {
+        switch self {
+        case .none:        return nil
+        case .weekly:      return calendar.date(byAdding: .weekOfYear, value: 1, to: date)
+        case .fortnightly: return calendar.date(byAdding: .weekOfYear, value: 2, to: date)
+        case .monthly:     return calendar.date(byAdding: .month, value: 1, to: date)
+        case .yearly:      return calendar.date(byAdding: .year, value: 1, to: date)
+        case .threeYearly: return calendar.date(byAdding: .year, value: 3, to: date)
+        }
+    }
+}
+
+// MARK: - Recurring auto-generation
+
+/// Materialises missed recurrence cycles for any template entry whose next
+/// cycle date has already passed. Returns the number of new entries added,
+/// so the caller can show a toast.
+///
+/// Rules:
+/// - Templates are entries with `parentEntryId == nil` and a non-`.none` recurrence.
+/// - Children inherit description / amount / type / category / currency / recurrence
+///   / duration from the template, get a fresh UUID, the cycle date, and a
+///   `parentEntryId` pointing at the template.
+/// - Children do NOT inherit the parent's PDF attachments (those refer to
+///   real receipts and shouldn't be duplicated).
+/// - If the template has a duration, generation stops at `template.date + duration`.
+/// - A safety cap of 200 children per template per pass prevents runaway
+///   generation if the system clock is wildly wrong.
+@discardableResult
+func autoGenerateRecurring(entries: inout [Entry], now: Date = Date()) -> Int {
+    let calendar = Calendar.current
+    var newChildren: [Entry] = []
+    let cap = 200
+
+    for index in entries.indices {
+        guard entries[index].parentEntryId == nil,
+              let recurrence = entries[index].recurrence,
+              recurrence != .none else { continue }
+
+        let template = entries[index]
+        let endDate: Date = {
+            guard let duration = template.duration else { return now }
+            let days = Int(duration.inYears * 365.25)
+            return calendar.date(byAdding: .day, value: days, to: template.date) ?? now
+        }()
+        let cutoff = min(now, endDate)
+
+        var cursor = template.lastGeneratedAt ?? template.date
+        var produced = 0
+        var newLastGen: Date? = nil
+
+        while produced < cap,
+              let next = recurrence.nextDate(after: cursor),
+              next <= cutoff {
+            var child = template
+            child.id = UUID()
+            child.date = next
+            child.parentEntryId = template.id
+            child.lastGeneratedAt = nil
+            child.attachments = nil
+            newChildren.append(child)
+            newLastGen = next
+            cursor = next
+            produced += 1
+        }
+
+        if let lastGen = newLastGen {
+            entries[index].lastGeneratedAt = lastGen
+        }
+    }
+
+    if !newChildren.isEmpty {
+        entries.append(contentsOf: newChildren)
+        entries.sort { $0.date < $1.date }
+    }
+    return newChildren.count
 }
 
 /// Currency an entry is recorded in. Totals are always normalised to GBP.
@@ -1591,7 +1677,18 @@ struct UkExpenseTrackerView: View {
         } catch {
             entries = []
             showToast("Failed to load entries")
+            return
         }
+        materialiseRecurringIfNeeded()
+    }
+
+    /// Generates child entries for any recurring templates whose next cycle
+    /// has elapsed, persists the result, and notifies the user via a toast.
+    private func materialiseRecurringIfNeeded() {
+        let addedCount = autoGenerateRecurring(entries: &entries)
+        guard addedCount > 0 else { return }
+        saveEntries()
+        showToast("Added \(addedCount) recurring \(addedCount == 1 ? "entry" : "entries")")
     }
 
     /// Refreshes the USD rate once per 12-hour window. Silent on failure —
@@ -2108,6 +2205,12 @@ private struct EntryRow: View {
                             .foregroundColor(C.mid)
                             .labelStyle(.titleAndIcon)
                     }
+                    if entry.parentEntryId != nil {
+                        Label("Auto", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.system(size: T.textXs, weight: .semibold))
+                            .foregroundColor(C.sage)
+                            .labelStyle(.titleAndIcon)
+                    }
                     Spacer(minLength: T.space2)
                     if let supp = supplementary {
                         Text(supp.text)
@@ -2437,7 +2540,13 @@ struct EntryModalView: View {
                         recurrence: recurrence == .none ? nil : recurrence,
                         duration: duration,
                         attachments: attachments.isEmpty ? nil : attachments,
-                        currency: currency
+                        currency: currency,
+                        // Preserve the auto-gen lineage when editing an existing
+                        // entry so editing a child doesn't sever its link to
+                        // the template, and editing a template keeps its
+                        // last-generated marker so old cycles aren't re-spawned.
+                        parentEntryId: entry?.parentEntryId,
+                        lastGeneratedAt: entry?.lastGeneratedAt
                     )
                     onSave(newEntry)
                 }
@@ -3165,6 +3274,14 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.8", date: "Jun 2026", bullets: [
+        "Search bar on the Expenses + Income tabs (matches description and category)",
+        "Category filter chips below the page header — tap to scope, tap again to clear",
+        "\"5 of 23 entries\" counter in the page subtitle when filters are active",
+        "Recurring entries now auto-materialise on app launch — every monthly/yearly/etc. cycle that has elapsed since the template's last run becomes a real entry, marked with an \"Auto\" chip",
+        "Auto-generation respects the entry's Duration — generation stops at template.date + duration",
+        "Editing a child preserves its link to the recurrence template; editing a template keeps its last-generated marker so old cycles aren't re-spawned"
+    ]),
     .init(version: "0.7", date: "Jun 2026", bullets: [
         "Sign out from Settings — locks the app without wiping data",
         "Tax year picker in the nav bar; every tab filters to the active year",
@@ -3295,6 +3412,14 @@ private let faqItems: [FAQItem] = [
     .init(
         question: "What does Recurrence × Duration mean for the total?",
         answer: "When an entry has both — for example monthly £10 for 1 year, or yearly £100 for 3 years — the Dashboard and Tax summary count the full committed amount (£120 and £300 respectively). Without a duration, only the per-period amount is recorded."
+    ),
+    .init(
+        question: "What is the \"Auto\" chip on an entry?",
+        answer: "It marks an entry that was auto-created by the recurrence engine on app launch. You created the original template (e.g. \"Hosting fee, monthly, £20\") and Tally automatically materialised one entry per month since then, so the dashboard totals stay accurate without you re-adding each cycle. Edit or delete auto entries like any other."
+    ),
+    .init(
+        question: "How do I stop a recurring entry from generating more?",
+        answer: "Open the template (the original, non-Auto entry), set its Recurrence to None, and Save. Existing auto-generated children stay where they are; no new ones will be created. Setting a Duration on the template also caps generation at template.date + duration."
     ),
     .init(
         question: "How does USD → GBP conversion work?",
