@@ -1091,6 +1091,132 @@ func shortDate(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
+/// Evaluate an amount string. Accepts plain numbers (`12.99`) or simple
+/// `+ - * / ( )` expressions (`12.99 + 5.50`, `(1+2)*3.5`). Returns nil on
+/// parse error. Strips currency symbols and grouping commas first.
+func evaluateAmountExpression(_ input: String) -> Double? {
+    let cleaned = input
+        .trimmingCharacters(in: .whitespaces)
+        .replacingOccurrences(of: "£", with: "")
+        .replacingOccurrences(of: "$", with: "")
+        .replacingOccurrences(of: ",", with: "")
+        .replacingOccurrences(of: "×", with: "*")
+        .replacingOccurrences(of: "÷", with: "/")
+    guard !cleaned.isEmpty else { return nil }
+
+    // Fast path: plain decimal.
+    if let d = Double(cleaned) { return d.isFinite ? d : nil }
+
+    return ShuntingYard.evaluate(cleaned)
+}
+
+/// Tiny shunting-yard evaluator used by `evaluateAmountExpression`.
+/// Safe by construction — refuses any character outside `0-9 . + - * / ( )`,
+/// rejects unbalanced parens, divide-by-zero, and trailing operators.
+private enum ShuntingYard {
+    enum Token { case num(Double), op(Character), lp, rp }
+
+    static func evaluate(_ input: String) -> Double? {
+        guard let tokens = tokenize(input),
+              let rpn = toRPN(tokens) else { return nil }
+        return eval(rpn)
+    }
+
+    static func tokenize(_ s: String) -> [Token]? {
+        var tokens: [Token] = []
+        var buf = ""
+        var prevIsValue = false
+        func flushNumber() -> Bool {
+            guard !buf.isEmpty else { return true }
+            guard let n = Double(buf) else { return false }
+            tokens.append(.num(n))
+            buf = ""
+            prevIsValue = true
+            return true
+        }
+        for ch in s {
+            switch ch {
+            case " ", "\t": continue
+            case "0"..."9", ".":
+                buf.append(ch)
+            case "(":
+                if !buf.isEmpty { return nil }
+                tokens.append(.lp); prevIsValue = false
+            case ")":
+                if !flushNumber() { return nil }
+                tokens.append(.rp); prevIsValue = true
+            case "+", "-", "*", "/":
+                if !flushNumber() { return nil }
+                if (ch == "-" || ch == "+") && !prevIsValue {
+                    tokens.append(.num(0))   // unary: turn -x into 0-x
+                }
+                tokens.append(.op(ch))
+                prevIsValue = false
+            default:
+                return nil
+            }
+        }
+        if !flushNumber() { return nil }
+        return tokens
+    }
+
+    static func precedence(_ op: Character) -> Int {
+        op == "*" || op == "/" ? 2 : 1
+    }
+
+    static func toRPN(_ tokens: [Token]) -> [Token]? {
+        var output: [Token] = []
+        var stack: [Token] = []
+        for token in tokens {
+            switch token {
+            case .num: output.append(token)
+            case .op(let op):
+                while let top = stack.last, case .op(let topOp) = top, precedence(topOp) >= precedence(op) {
+                    output.append(stack.removeLast())
+                }
+                stack.append(.op(op))
+            case .lp:
+                stack.append(.lp)
+            case .rp:
+                var found = false
+                while let top = stack.last {
+                    if case .lp = top { stack.removeLast(); found = true; break }
+                    output.append(stack.removeLast())
+                }
+                if !found { return nil }
+            }
+        }
+        while let top = stack.popLast() {
+            if case .lp = top { return nil }
+            output.append(top)
+        }
+        return output
+    }
+
+    static func eval(_ rpn: [Token]) -> Double? {
+        var stack: [Double] = []
+        for token in rpn {
+            switch token {
+            case .num(let v): stack.append(v)
+            case .op(let op):
+                guard stack.count >= 2 else { return nil }
+                let b = stack.removeLast()
+                let a = stack.removeLast()
+                switch op {
+                case "+": stack.append(a + b)
+                case "-": stack.append(a - b)
+                case "*": stack.append(a * b)
+                case "/": guard b != 0 else { return nil }; stack.append(a / b)
+                default:  return nil
+                }
+            case .lp, .rp: return nil
+            }
+        }
+        guard stack.count == 1, stack[0].isFinite else { return nil }
+        return stack[0]
+    }
+}
+
 func parseTaxCode(_ code: String) -> Int? {
     // UK tax code is typically digits followed by a letter, e.g. 1257L.
     // Personal allowance is the digit portion × 10.
@@ -1909,7 +2035,12 @@ struct EntryModalView: View {
     /// picker selection always matches a current tag.
     @State private var selectedCategoryName: String = ""
 
-    private var amountAsDouble: Double? { Double(amountText) }
+    /// Accepts a plain decimal (`12.99`) or a simple arithmetic expression
+    /// (`12.99 + 5.50`, `200/3`, `(1+2)*3.5`). Powered by NSExpression so the
+    /// safe operators only — no key paths, no function calls.
+    private var amountAsDouble: Double? {
+        evaluateAmountExpression(amountText)
+    }
     private var gbpEquivalent: Double? {
         guard let amount = amountAsDouble, currency == .usd, usdRate > 0 else { return nil }
         return amount / usdRate
@@ -1936,8 +2067,21 @@ struct EntryModalView: View {
                     HStack {
                         Text(currency.symbol)
                             .foregroundColor(C.mid)
-                        TextField("Amount", text: $amountText)
-                            .keyboardType(.decimalPad)
+                        TextField("Amount or expression (e.g. 12.99 + 5)", text: $amountText)
+                            .keyboardType(.asciiCapableNumberPad)
+                            .autocorrectionDisabled()
+                    }
+                    if let resolved = amountAsDouble,
+                       amountText.trimmingCharacters(in: .whitespaces).count > 0,
+                       Double(amountText) == nil {
+                        HStack {
+                            Text("= ")
+                                .foregroundColor(C.mid)
+                            Text(fmt(resolved, currency: currency))
+                                .font(.system(.body, weight: .semibold))
+                                .foregroundColor(C.sage)
+                            Spacer()
+                        }
                     }
                     Picker("Currency", selection: $currency) {
                         ForEach(Currency.allCases) { c in
