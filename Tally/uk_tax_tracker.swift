@@ -1217,6 +1217,66 @@ private enum ShuntingYard {
     }
 }
 
+extension DateFormatter {
+    static let tallyExportStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+}
+
+// MARK: - CSV Export
+
+enum EntryCSV {
+    /// RFC 4180-ish: header row + one row per entry. Strings containing commas,
+    /// quotes, or newlines are double-quoted with internal quotes doubled.
+    static func makeCSV(entries: [Entry], usdRate: Double) -> String {
+        let header = "Date,Description,Type,Category,Amount,Currency,Amount (GBP),Recurrence,Duration,Commitment Multiplier,Total (GBP),Attachments\n"
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+
+        let rows = entries.map { e -> String in
+            let dateStr = formatter.string(from: e.date)
+            let amount = String(format: "%.2f", e.amount)
+            let amountGBP = String(format: "%.2f", e.amountInGBP(usdRate: usdRate))
+            let totalGBP = String(format: "%.2f", e.totalAmountInGBP(usdRate: usdRate))
+            let multiplier = String(format: "%.4f", e.commitmentMultiplier)
+            let attachmentCount = e.attachments?.count ?? 0
+            let fields: [String] = [
+                dateStr,
+                e.description,
+                e.type.rawValue,
+                e.category.name,
+                amount,
+                e.resolvedCurrency.rawValue,
+                amountGBP,
+                e.recurrence?.rawValue ?? "",
+                e.duration?.rawValue ?? "",
+                multiplier,
+                totalGBP,
+                String(attachmentCount)
+            ]
+            return fields.map(escape).joined(separator: ",")
+        }
+        return header + rows.joined(separator: "\n") + "\n"
+    }
+
+    private static func escape(_ field: String) -> String {
+        if field.contains(",") || field.contains("\"") || field.contains("\n") {
+            return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return field
+    }
+
+    /// Write `csv` to a temp file with a friendly filename and return its URL.
+    static func writeToTemp(csv: String, filename: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+        let url = dir.appendingPathComponent(filename)
+        try csv.data(using: .utf8)?.write(to: url)
+        return url
+    }
+}
+
 func parseTaxCode(_ code: String) -> Int? {
     // UK tax code is typically digits followed by a letter, e.g. 1257L.
     // Personal allowance is the digit portion × 10.
@@ -1440,6 +1500,8 @@ struct UkExpenseTrackerView: View {
                             appearanceMode: $appearanceMode,
                             taxCode: $taxCode,
                             customCategoriesData: $customCategoriesData,
+                            entries: entries,
+                            usdRate: usdRate,
                             loginManager: loginManager
                         )
                     }
@@ -2595,6 +2657,8 @@ struct SettingsView: View {
     @Binding var appearanceMode: AppearanceMode
     @Binding var taxCode: String
     @Binding var customCategoriesData: Data
+    var entries: [Entry]
+    var usdRate: Double
     @ObservedObject var loginManager: LoginManager
     @Environment(\.dismiss) private var dismiss
 
@@ -2604,6 +2668,13 @@ struct SettingsView: View {
     @State private var showDeleteConfirm = false
     @State private var customCategories: [String] = []
     @State private var newCategoryName: String = ""
+
+    private var exportURL: URL? {
+        let csv = EntryCSV.makeCSV(entries: entries, usdRate: usdRate)
+        let stamp = DateFormatter.tallyExportStamp.string(from: Date())
+        let filename = "tally-entries-\(stamp).csv"
+        return try? EntryCSV.writeToTemp(csv: csv, filename: filename)
+    }
 
     private var personalAllowance: Int? {
         parseTaxCode(taxCode)
@@ -2700,6 +2771,21 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 } header: {
                     Text("Appearance")
+                }
+
+                Section {
+                    if let url = exportURL {
+                        ShareLink(item: url) {
+                            Label("Export entries as CSV", systemImage: "square.and.arrow.up")
+                        }
+                    } else {
+                        Label("Export entries as CSV", systemImage: "square.and.arrow.up")
+                            .foregroundColor(C.mid)
+                    }
+                } header: {
+                    Text("Data")
+                } footer: {
+                    Text("Opens the share sheet with a CSV of every entry — date, description, type, category, amount, currency, GBP equivalent, recurrence/duration, and attachment count.")
                 }
 
                 Section {
