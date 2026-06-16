@@ -1872,30 +1872,90 @@ struct EntryListView: View {
     var onEdit: (Entry) -> Void
     var onAddNew: () -> Void
 
+    @State private var searchText: String = ""
+    @State private var selectedCategoryFilter: String? = nil
+
+    /// Categories present in the current set, sorted by frequency desc then name.
+    private var visibleCategories: [String] {
+        let counts = Dictionary(grouping: entries, by: { $0.category.name })
+            .mapValues(\.count)
+        return counts.keys.sorted { (a, b) in
+            let (ca, cb) = (counts[a] ?? 0, counts[b] ?? 0)
+            return ca == cb ? a < b : ca > cb
+        }
+    }
+
+    /// Entries after applying search + category chip.
+    private var filteredEntries: [Entry] {
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        return entries.filter { e in
+            if let cat = selectedCategoryFilter, e.category.name != cat { return false }
+            if !q.isEmpty {
+                let hay = "\(e.description) \(e.category.name)".lowercased()
+                if !hay.contains(q) { return false }
+            }
+            return true
+        }
+    }
+
+    private var subtitle: String {
+        let total = entries.count
+        let shown = filteredEntries.count
+        if shown == total {
+            return "\(total) \(total == 1 ? "entry" : "entries")"
+        }
+        return "\(shown) of \(total) \(total == 1 ? "entry" : "entries")"
+    }
+
+    private var hasActiveFilter: Bool {
+        !searchText.isEmpty || selectedCategoryFilter != nil
+    }
+
     var body: some View {
-        // Using a List (rather than ScrollView + Buttons) for the rows — Lists
-        // own their scroll gesture and don't compete with row taps, so long
-        // entry lists reliably scroll on real devices.
         List {
             Section {
-                TallyPageHeader(title: title,
-                                subtitle: "\(entries.count) \(entries.count == 1 ? "entry" : "entries")")
+                TallyPageHeader(title: title, subtitle: subtitle)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
 
+            if visibleCategories.count > 1 {
+                Section {
+                    CategoryFilterChips(
+                        categories: visibleCategories,
+                        selected: $selectedCategoryFilter
+                    )
+                    .listRowInsets(EdgeInsets(top: 0, leading: T.space6,
+                                              bottom: T.space2, trailing: T.space6))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            }
+
             Section {
-                if entries.isEmpty {
-                    Text("No \(title.lowercased()) yet")
-                        .font(.bodyText)
-                        .foregroundColor(C.mid)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, T.space6)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                if filteredEntries.isEmpty {
+                    VStack(spacing: T.space2) {
+                        Text(entries.isEmpty
+                             ? "No \(title.lowercased()) yet"
+                             : "No matching \(title.lowercased())")
+                            .font(.bodyText)
+                            .foregroundColor(C.mid)
+                        if hasActiveFilter {
+                            Button("Clear filters") {
+                                searchText = ""
+                                selectedCategoryFilter = nil
+                            }
+                            .font(.system(size: T.textSm, weight: .semibold))
+                            .foregroundColor(C.sage)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, T.space6)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 } else {
-                    ForEach(entries) { entry in
+                    ForEach(filteredEntries) { entry in
                         EntryRow(entry: entry, usdRate: usdRate)
                             .contentShape(Rectangle())
                             .onTapGesture { onEdit(entry) }
@@ -1921,6 +1981,54 @@ struct EntryListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(C.paper)
+        .searchable(text: $searchText,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search \(title.lowercased())")
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+    }
+}
+
+private struct CategoryFilterChips: View {
+    let categories: [String]
+    @Binding var selected: String?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: T.space2) {
+                Chip(label: "All", isOn: selected == nil) {
+                    selected = nil
+                }
+                ForEach(categories, id: \.self) { name in
+                    Chip(label: name, isOn: selected == name) {
+                        selected = (selected == name) ? nil : name
+                    }
+                }
+            }
+            .padding(.vertical, T.space1)
+        }
+    }
+
+    private struct Chip: View {
+        let label: String
+        let isOn: Bool
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                Text(label)
+                    .font(.system(size: T.textXs, weight: .bold))
+                    .foregroundColor(isOn ? .white : C.sage)
+                    .padding(.horizontal, T.space3)
+                    .padding(.vertical, 6)
+                    .background(isOn ? C.sage : C.sagePale)
+                    .overlay(
+                        Capsule().stroke(isOn ? C.sage : C.mint, lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
     }
 }
 
