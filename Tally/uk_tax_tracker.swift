@@ -1408,6 +1408,82 @@ enum ExchangeRateService {
     }
 }
 
+// MARK: - Sample data
+
+/// Builds ~30 representative entries spread across the active tax year so
+/// the Dashboard / charts / Tax Summary populate immediately for testing.
+enum SampleData {
+    static func build(taxYear: Int) -> [Entry] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+        let yearStart = cal.date(from: DateComponents(year: taxYear, month: 4, day: 6)) ?? Date()
+        func d(_ monthOffset: Int, _ day: Int) -> Date {
+            cal.date(byAdding: DateComponents(month: monthOffset, day: day - 6), to: yearStart) ?? Date()
+        }
+
+        let cat: (String, String) -> Category = { name, color in
+            Category(id: UUID(), name: name, colorName: color)
+        }
+
+        let income: [Entry] = [
+            entry(date: d(0, 28),  desc: "Freelance retainer",   amount: 2500, type: .income,  cat: cat("Salary", "green"),  currency: .gbp),
+            entry(date: d(1, 30),  desc: "Freelance retainer",   amount: 2500, type: .income,  cat: cat("Salary", "green"),  currency: .gbp),
+            entry(date: d(2, 30),  desc: "Project — Acme Ltd",   amount: 3800, type: .income,  cat: cat("Salary", "green"),  currency: .gbp),
+            entry(date: d(3, 30),  desc: "Project — Beta Corp",  amount: 1200, type: .income,  cat: cat("Salary", "green"),  currency: .usd),
+            entry(date: d(5, 30),  desc: "Freelance retainer",   amount: 2750, type: .income,  cat: cat("Salary", "green"),  currency: .gbp),
+            entry(date: d(8, 30),  desc: "Workshop fees",        amount: 950,  type: .income,  cat: cat("Salary", "green"),  currency: .gbp),
+        ]
+
+        let expenses: [Entry] = [
+            entry(date: d(0, 12),  desc: "Namecheap domain",          amount: 12.99, type: .expense, cat: cat("Domain names",     "sage"),      currency: .gbp, duration: .oneYear, vat: .standard),
+            entry(date: d(0, 15),  desc: "Hetzner VPS",               amount: 14.50, type: .expense, cat: cat("Web hosting",      "sageLight"), currency: .gbp, recurrence: .monthly, vat: .standard),
+            entry(date: d(0, 18),  desc: "Stripe SSL",                amount: 95.00, type: .expense, cat: cat("SSL Certificates", "amber"),     currency: .usd, duration: .oneYear),
+            entry(date: d(1, 8),   desc: "OpenAI usage",              amount: 42.30, type: .expense, cat: cat("GenAI",            "mint"),      currency: .usd, recurrence: .monthly, vat: .exempt),
+            entry(date: d(1, 22),  desc: "Office coffee + sandwich",  amount: 8.40,  type: .expense, cat: cat("Food",             "orange"),    currency: .gbp, vat: .reduced),
+            entry(date: d(2, 4),   desc: "Train to client meeting",   amount: 32.50, type: .expense, cat: cat("Transport",        "blue"),      currency: .gbp, vat: .zeroRated),
+            entry(date: d(2, 14),  desc: "Notion subscription",       amount: 8.00,  type: .expense, cat: cat("GenAI",            "mint"),      currency: .usd, recurrence: .monthly),
+            entry(date: d(3, 1),   desc: "Cloudflare Pro",            amount: 20.00, type: .expense, cat: cat("Web hosting",      "sageLight"), currency: .usd, recurrence: .monthly, vat: .standard),
+            entry(date: d(3, 19),  desc: "Anthropic Claude",          amount: 30.00, type: .expense, cat: cat("GenAI",            "mint"),      currency: .usd, recurrence: .monthly),
+            entry(date: d(4, 5),   desc: "Adobe CC",                  amount: 30.34, type: .expense, cat: cat("GenAI",            "mint"),      currency: .gbp, recurrence: .monthly, vat: .standard),
+            entry(date: d(5, 11),  desc: "GitHub Copilot",            amount: 10.00, type: .expense, cat: cat("GenAI",            "mint"),      currency: .usd, recurrence: .monthly),
+            entry(date: d(6, 3),   desc: "Quarterly tax payment",     amount: 1280,  type: .tax,     cat: cat("Tax",              "red"),       currency: .gbp),
+            entry(date: d(7, 17),  desc: "Conference ticket",         amount: 180,   type: .expense, cat: cat("General",          "primary"),   currency: .gbp, vat: .standard),
+            entry(date: d(8, 22),  desc: "Travel insurance",          amount: 24.00, type: .expense, cat: cat("General",          "primary"),   currency: .gbp, vat: .exempt),
+            entry(date: d(9, 8),   desc: "Lunch with client",         amount: 47.50, type: .expense, cat: cat("Food",             "orange"),    currency: .gbp, vat: .standard),
+            entry(date: d(10, 14), desc: "Domain renewal",            amount: 12.99, type: .expense, cat: cat("Domain names",     "sage"),      currency: .gbp, duration: .oneYear, vat: .standard),
+            entry(date: d(11, 1),  desc: "Quarterly tax payment",     amount: 1480,  type: .tax,     cat: cat("Tax",              "red"),       currency: .gbp),
+        ]
+        return (income + expenses).sorted { $0.date < $1.date }
+    }
+
+    private static func entry(date: Date,
+                              desc: String,
+                              amount: Double,
+                              type: Entry.EntryType,
+                              cat: Category,
+                              currency: Currency,
+                              recurrence: Recurrence? = nil,
+                              duration: Duration? = nil,
+                              vat: VATRate? = nil) -> Entry {
+        Entry(
+            id: UUID(),
+            date: date,
+            description: desc,
+            amount: amount,
+            type: type,
+            category: cat,
+            recurrence: recurrence,
+            duration: duration,
+            attachments: nil,
+            currency: currency,
+            parentEntryId: nil,
+            lastGeneratedAt: nil,
+            notes: nil,
+            vatRate: vat
+        )
+    }
+}
+
 // MARK: - CSV Export
 
 enum EntryCSV {
@@ -1725,6 +1801,7 @@ struct UkExpenseTrackerView: View {
                             usdRate: $usdRate,
                             usdRateUpdatedAt: $usdRateUpdatedAt,
                             entries: entries,
+                            onLoadSampleData: loadSampleData,
                             loginManager: loginManager
                         )
                     }
@@ -1818,6 +1895,14 @@ struct UkExpenseTrackerView: View {
 
     /// Open a fresh draft pre-filled from `entry`. Attachments + auto-gen
     /// lineage are intentionally dropped so the duplicate is a true new entry.
+    private func loadSampleData() {
+        let sample = SampleData.build(taxYear: taxYear)
+        entries.append(contentsOf: sample)
+        entries.sort { $0.date < $1.date }
+        saveEntries()
+        showToast("Loaded \(sample.count) sample entries")
+    }
+
     private func duplicateEntry(_ entry: Entry) {
         var copy = entry
         copy.id = UUID()
@@ -3317,6 +3402,7 @@ struct SettingsView: View {
     @Binding var usdRate: Double
     @Binding var usdRateUpdatedAt: Double
     var entries: [Entry]
+    var onLoadSampleData: () -> Void
     @ObservedObject var loginManager: LoginManager
     @Environment(\.dismiss) private var dismiss
 
@@ -3327,6 +3413,7 @@ struct SettingsView: View {
     @State private var customCategories: [String] = []
     @State private var newCategoryName: String = ""
     @State private var isRefreshingRate = false
+    @State private var showSampleConfirm = false
     @AppStorage("biometricEnabled") private var biometricEnabled: Bool = true
 
     private var biometricToggleLabel: String {
@@ -3469,6 +3556,17 @@ struct SettingsView: View {
                             .foregroundColor(C.mid)
                     }
 
+                    Button {
+                        if entries.isEmpty {
+                            onLoadSampleData()
+                            dismiss()
+                        } else {
+                            showSampleConfirm = true
+                        }
+                    } label: {
+                        Label("Load sample tax year", systemImage: "wand.and.stars")
+                    }
+
                     HStack {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
@@ -3557,6 +3655,19 @@ struct SettingsView: View {
             } message: {
                 Text("This will permanently remove your profile, entries, attachments, and account.")
             }
+            .confirmationDialog(
+                "Load sample data?",
+                isPresented: $showSampleConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Add to existing entries") {
+                    onLoadSampleData()
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Adds ~30 representative entries across the active tax year, alongside any you already have.")
+            }
         }
     }
 
@@ -3641,6 +3752,12 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.10", date: "Jun 2026", bullets: [
+        "Per-entry VAT — Standard / Reduced / Zero-rated / Exempt / Unspecified",
+        "Tax Summary VAT card now splits into Declared (from explicit rates) and Estimated (20% fallback for Unspecified)",
+        "Swift Charts on the Dashboard: monthly profit bars + expenses-by-category donut",
+        "Settings → Data → \"Load sample tax year\" — drops in ~30 representative entries with mixed currencies, recurrence, durations, and VAT so the Dashboard, charts and Tax Summary populate instantly"
+    ]),
     .init(version: "0.9", date: "Jun 2026", bullets: [
         "Notes field on entries — free-form multi-line text below the details",
         "Swipe right on a row to duplicate; swipe left to delete (cleans up the attached PDF too)",
