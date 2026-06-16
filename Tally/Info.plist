@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to sign in to Tally securely.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -14,7 +16,8 @@
 				<string>com.googleusercontent.apps.317773038654-jos1quprvmakehst4kq6i7gdqou20hjc</string>
 			</array>
 		</dict>
-		<dict/>
 	</array>
 </dict>
 </plist>
+</content>
+</invoke>

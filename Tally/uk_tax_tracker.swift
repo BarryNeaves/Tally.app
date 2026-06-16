@@ -365,9 +365,12 @@ class LoginManager: ObservableObject {
     }
 
     private func determineInitialStep() {
-        if storedEmail.isEmpty {
-            step = .signUp
-        } else if !isEmailVerified {
+        // If a local account exists but isn't verified yet, jump straight to verify.
+        // Otherwise default to Sign In — even on a fresh device — and let the
+        // user choose Sign Up from there. This matches how most apps onboard
+        // and avoids stranding returning users (who reinstalled, restored, or
+        // wiped data) on a screen with no path back to their account.
+        if !storedEmail.isEmpty && !isEmailVerified {
             issueVerificationCode()
             step = .verifyEmail
         } else {
@@ -1603,8 +1606,29 @@ private struct EntryRow: View {
         entry.type == .expense ? "−" : "+"
     }
 
+    /// Combined recurrence + duration label so the meta row only carries one pill.
+    private var termLabel: String? {
+        let rec = entry.recurrence.flatMap { $0 == .none ? nil : $0 }
+        switch (rec, entry.duration) {
+        case let (r?, d?): return "\(r.label) · \(d.label)"
+        case let (r?, nil): return r.label
+        case let (nil, d?): return d.label
+        case (nil, nil): return nil
+        }
+    }
+
+    private var supplementary: (text: String, color: Color)? {
+        if entry.hasCommitment {
+            return ("Total \(fmt(entry.totalAmountInGBP(usdRate: usdRate)))", C.sage)
+        }
+        if entry.resolvedCurrency == .usd {
+            return ("≈ \(fmt(entry.amountInGBP(usdRate: usdRate)))", C.usd)
+        }
+        return nil
+    }
+
     var body: some View {
-        HStack(spacing: T.space3) {
+        HStack(alignment: .center, spacing: T.space3) {
             ZStack {
                 RoundedRectangle(cornerRadius: T.radiusSm)
                     .fill(entry.category.color.opacity(0.18))
@@ -1615,40 +1639,46 @@ private struct EntryRow: View {
             .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(entry.description.isEmpty ? entry.category.name : entry.description)
-                    .font(.system(size: T.textSm, weight: .semibold))
-                    .foregroundColor(C.ink)
-                    .lineLimit(1)
-                HStack(spacing: T.space2) {
+                // Top line: description ⇄ amount (single line, both truncate gracefully)
+                HStack(alignment: .firstTextBaseline, spacing: T.space2) {
+                    Text(entry.description.isEmpty ? entry.category.name : entry.description)
+                        .font(.system(size: T.textSm, weight: .semibold))
+                        .foregroundColor(C.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                    Spacer(minLength: T.space2)
+                    Text("\(sign)\(fmt(entry.amount, currency: entry.resolvedCurrency))")
+                        .font(.system(size: T.textMd, weight: .bold))
+                        .foregroundColor(amountColor)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+
+                // Bottom line: date · term pill · paperclip ⇄ total / GBP equivalent
+                HStack(alignment: .center, spacing: T.space2) {
                     Text(shortDate(entry.date))
                         .font(.system(size: T.textXs))
                         .foregroundColor(C.mid)
-                    if let recurrence = entry.recurrence, recurrence != .none {
-                        TallyPill(label: recurrence.label, style: .sage)
-                    }
-                    if let duration = entry.duration {
-                        TallyPill(label: duration.label, style: .amber)
+                        .lineLimit(1)
+                    if let term = termLabel {
+                        TallyPill(label: term, style: .sage)
+                            .layoutPriority(0)
                     }
                     if let attachments = entry.attachments, !attachments.isEmpty {
                         Label("\(attachments.count)", systemImage: "paperclip")
                             .font(.system(size: T.textXs, weight: .semibold))
                             .foregroundColor(C.mid)
+                            .labelStyle(.titleAndIcon)
                     }
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(sign)\(fmt(entry.amount, currency: entry.resolvedCurrency))")
-                    .font(.system(size: T.textMd, weight: .bold))
-                    .foregroundColor(amountColor)
-                if entry.hasCommitment {
-                    Text("Total \(fmt(entry.totalAmountInGBP(usdRate: usdRate)))")
-                        .font(.system(size: T.textXs, weight: .semibold))
-                        .foregroundColor(C.sage)
-                } else if entry.resolvedCurrency == .usd {
-                    Text("≈ \(fmt(entry.amountInGBP(usdRate: usdRate)))")
-                        .font(.system(size: T.textXs))
-                        .foregroundColor(C.usd)
+                    Spacer(minLength: T.space2)
+                    if let supp = supplementary {
+                        Text(supp.text)
+                            .font(.system(size: T.textXs, weight: .semibold))
+                            .foregroundColor(supp.color)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
                 }
             }
         }
@@ -1781,27 +1811,35 @@ struct EntryModalView: View {
     @State private var attachments: [PDFAttachment] = []
     @State private var showFileImporter = false
 
-    // Built-in expense categories include common SaaS / online-business buckets.
-    private let builtInCategories = [
-        Category(id: UUID(), name: "General",          colorName: "primary"),
-        Category(id: UUID(), name: "Food",             colorName: "orange"),
-        Category(id: UUID(), name: "Transport",        colorName: "blue"),
-        Category(id: UUID(), name: "Salary",           colorName: "green"),
-        Category(id: UUID(), name: "Tax",              colorName: "red"),
-        Category(id: UUID(), name: "Domain names",     colorName: "sage"),
-        Category(id: UUID(), name: "Web hosting",      colorName: "sageLight"),
-        Category(id: UUID(), name: "SSL Certificates", colorName: "amber"),
-        Category(id: UUID(), name: "GenAI",            colorName: "mint")
+    // Built-in expense categories. Identified by name (stable) — the UUID is just
+    // for downstream Codable storage on Entry. SwiftUI Pickers select by name.
+    private let builtInCategoryDefs: [(name: String, colorName: String)] = [
+        ("General",          "primary"),
+        ("Food",             "orange"),
+        ("Transport",        "blue"),
+        ("Salary",           "green"),
+        ("Tax",              "red"),
+        ("Domain names",     "sage"),
+        ("Web hosting",      "sageLight"),
+        ("SSL Certificates", "amber"),
+        ("GenAI",            "mint")
     ]
 
+    /// All categories presented in the picker. Built-ins first, then user-added.
     private var categories: [Category] {
-        let custom = customCategoryNames.map { name in
-            Category(id: UUID(), name: name, colorName: "sage")
+        let builtIns = builtInCategoryDefs.map {
+            Category(id: UUID(), name: $0.name, colorName: $0.colorName)
         }
-        return builtInCategories + custom
+        let custom = customCategoryNames.map {
+            Category(id: UUID(), name: $0, colorName: "sage")
+        }
+        return builtIns + custom
     }
 
-    @State private var selectedCategory: Category?
+    /// Picker selection keyed by `name`. Stable across renders — the underlying
+    /// Category's UUID changes on each render but the name does not, so the
+    /// picker selection always matches a current tag.
+    @State private var selectedCategoryName: String = ""
 
     private var amountAsDouble: Double? { Double(amountText) }
     private var gbpEquivalent: Double? {
@@ -1854,9 +1892,9 @@ struct EntryModalView: View {
                         Text("Income").tag(Entry.EntryType.income)
                         Text("Tax").tag(Entry.EntryType.tax)
                     }
-                    Picker("Category", selection: $selectedCategory) {
+                    Picker("Category", selection: $selectedCategoryName) {
                         ForEach(categories) { category in
-                            Text(category.name).tag(category as Category?)
+                            Text(category.name).tag(category.name)
                         }
                     }
                     Picker("Recurrence", selection: $recurrence) {
@@ -1932,7 +1970,8 @@ struct EntryModalView: View {
                 },
                 trailing: Button("Save") {
                     guard let amount = amountAsDouble,
-                          let selectedCategory = selectedCategory else { return }
+                          let selectedCategory = categories.first(where: { $0.name == selectedCategoryName })
+                    else { return }
                     let newEntry = Entry(
                         id: entry?.id ?? UUID(),
                         date: date,
@@ -1947,7 +1986,7 @@ struct EntryModalView: View {
                     )
                     onSave(newEntry)
                 }
-                .disabled(descriptionText.isEmpty || amountAsDouble == nil || selectedCategory == nil)
+                .disabled(descriptionText.isEmpty || amountAsDouble == nil || selectedCategoryName.isEmpty)
             )
             .fileImporter(
                 isPresented: $showFileImporter,
@@ -1971,13 +2010,13 @@ struct EntryModalView: View {
                     amountText = String(entry.amount)
                     date = entry.date
                     selectedType = entry.type
-                    selectedCategory = entry.category
+                    selectedCategoryName = entry.category.name
                     recurrence = entry.recurrence ?? .none
                     duration = entry.duration
                     currency = entry.resolvedCurrency
                     attachments = entry.attachments ?? []
                 } else {
-                    selectedCategory = categories.first
+                    selectedCategoryName = categories.first?.name ?? ""
                     recurrence = .none
                     duration = nil
                     currency = .gbp
@@ -2087,13 +2126,11 @@ struct SignUpView: View {
                 .buttonStyle(TallyPrimaryButtonStyle())
                 .padding(.horizontal, T.space8)
 
-                if !loginManager.storedEmail.isEmpty {
-                    Button("Already have an account? Sign In") {
-                        loginManager.goToSignIn()
-                    }
-                    .font(.system(size: T.textSm, weight: .semibold))
-                    .foregroundColor(C.sage)
+                Button("Already have an account? Sign In") {
+                    loginManager.goToSignIn()
                 }
+                .font(.system(size: T.textSm, weight: .semibold))
+                .foregroundColor(C.sage)
 
                 Spacer(minLength: T.space8)
             }
@@ -2132,10 +2169,13 @@ struct VerifyEmailView: View {
                     VStack(spacing: T.space2) {
                         Text("Demo code — no email service wired up yet")
                             .font(.eyebrow)
-                            .foregroundColor(C.amber)
+                            .foregroundColor(Color(hex: "#7A4E0E"))
+                        // Fixed dark colour so the code stays readable on the
+                        // light amber surface in both light and dark mode.
                         Text(pending)
-                            .font(.system(size: T.textXl, weight: .bold, design: .monospaced))
-                            .foregroundColor(C.ink)
+                            .font(.system(size: T.text2xl, weight: .heavy, design: .monospaced))
+                            .tracking(6)
+                            .foregroundColor(Color(hex: "#1A1C18"))
                             .padding(.horizontal, T.space4)
                             .padding(.vertical, T.space2)
                     }
