@@ -34,6 +34,23 @@ struct Entry: Identifiable, Codable, Equatable {
     var lastGeneratedAt: Date?
     /// Free-form notes — receipts, context, anything that doesn't fit elsewhere.
     var notes: String?
+    /// Explicit VAT rate on this entry. Nil / .unspecified means no detail —
+    /// the Tax Summary falls back to a 20% estimate for those entries.
+    var vatRate: VATRate?
+
+    /// VAT *included* in the gross `amount` if the user declared an explicit
+    /// rate. Returns nil when no rate is set; the caller may then estimate.
+    var explicitVATIncluded: Double? {
+        guard let rate = vatRate?.rate else { return nil }
+        return amount * rate / (1 + rate)
+    }
+
+    /// True when the user has declared a specific VAT status — even if it's
+    /// zero-rated or exempt (so totals don't double-count via the estimate).
+    var hasExplicitVAT: Bool {
+        guard let vatRate, vatRate != .unspecified else { return false }
+        return true
+    }
 
     /// Resolved currency — older entries without the field default to GBP.
     var resolvedCurrency: Currency { currency ?? .gbp }
@@ -264,6 +281,31 @@ func autoGenerateRecurring(entries: inout [Entry], now: Date = Date()) -> Int {
         entries.sort { $0.date < $1.date }
     }
     return newChildren.count
+}
+
+/// UK VAT rate applied to an entry. `unspecified` means the user hasn't
+/// declared it and the Tax Summary should fall back to a 20% estimate.
+/// `exempt` and `zeroRated` both contribute 0 VAT but are kept distinct
+/// for reporting accuracy.
+enum VATRate: String, Codable, CaseIterable, Identifiable {
+    case unspecified = "Unspecified"
+    case standard    = "Standard (20%)"
+    case reduced     = "Reduced (5%)"
+    case zeroRated   = "Zero-rated"
+    case exempt      = "Exempt"
+
+    var id: String { rawValue }
+    var label: String { rawValue }
+
+    /// VAT fraction included in a gross amount. Nil = no detail (caller falls back).
+    var rate: Double? {
+        switch self {
+        case .unspecified: nil
+        case .standard:    0.20
+        case .reduced:     0.05
+        case .zeroRated, .exempt: 0.0
+        }
+    }
 }
 
 /// Currency an entry is recorded in. Totals are always normalised to GBP.
@@ -1920,21 +1962,52 @@ private struct SummaryCard: View {
 }
 
 /// Three derived estimate cards: VAT included in expenses, Income Tax owed,
-/// and Class 4 NI owed. All are fallback estimates — they're used when the
-/// entries themselves don't carry explicit VAT or tax-status detail.
+/// and Class 4 NI owed. VAT splits into explicit (where the user declared
+/// a rate) and estimated (where they didn't — 20% included is assumed).
 private struct EstimatesGroup: View {
+    let entries: [Entry]
     let profit: Double
     let expenses: Double
     let personalAllowance: Double
+    let usdRate: Double
+
+    /// VAT calculated from entries that have an explicit VATRate.
+    private var explicitVAT: Double {
+        entries
+            .filter { $0.type == .expense && $0.hasExplicitVAT }
+            .compactMap { e -> Double? in
+                guard let v = e.explicitVATIncluded else { return nil }
+                let gbp = e.resolvedCurrency == .usd && usdRate > 0 ? v / usdRate : v
+                return gbp
+            }
+            .reduce(0, +)
+    }
+
+    /// 20% estimate applied only to expenses without an explicit rate.
+    private var estimatedVAT: Double {
+        entries
+            .filter { $0.type == .expense && !$0.hasExplicitVAT }
+            .map { e in estimateVATIncluded(in: e.amountInGBP(usdRate: usdRate)) }
+            .reduce(0, +)
+    }
+
+    private var totalVAT: Double { explicitVAT + estimatedVAT }
 
     var body: some View {
         VStack(spacing: T.space4) {
-            SummaryCard(
-                label: "VAT included in expenses (est. @ 20%)",
-                value: fmt(estimateVATIncluded(in: expenses)),
-                accent: C.amber,
-                style: .amber
-            )
+            VStack(alignment: .leading, spacing: T.space2) {
+                SummaryCard(
+                    label: "VAT in expenses",
+                    value: fmt(totalVAT),
+                    accent: C.amber,
+                    style: .amber
+                )
+                HStack(spacing: T.space2) {
+                    VATBreakdownChip(label: "Declared", amount: explicitVAT, color: C.sage)
+                    VATBreakdownChip(label: "Estimated", amount: estimatedVAT, color: C.amber)
+                }
+                .padding(.horizontal, T.space2)
+            }
             SummaryCard(
                 label: "Income Tax due (est.)",
                 value: fmt(estimateIncomeTax(on: profit, personalAllowance: personalAllowance)),
@@ -1947,11 +2020,29 @@ private struct EstimatesGroup: View {
                 accent: C.sage,
                 style: .plain
             )
-            Text("Estimates assume no explicit VAT or tax detail on entries: 20% VAT included on every expense, all profit treated as self-employed, current tax-code allowance applied to income tax.")
+            Text("Set a VAT rate on each entry to make the VAT total exact. Expenses left as Unspecified are assumed to include 20% VAT. Income Tax + NI estimates assume self-employed status; PA from the tax code in Settings.")
                 .font(.system(size: T.textXs))
                 .foregroundColor(C.mid)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+private struct VATBreakdownChip: View {
+    let label: String
+    let amount: Double
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.eyebrow)
+                .foregroundColor(C.mid)
+            Text(fmt(amount))
+                .font(.system(size: T.textSm, weight: .bold, design: .monospaced))
+                .foregroundColor(color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -2432,9 +2523,11 @@ struct SummaryView: View {
                                 accent: C.amber,
                                 style: .amber)
 
-                    EstimatesGroup(profit: profit,
+                    EstimatesGroup(entries: entries,
+                                   profit: profit,
                                    expenses: expenses,
-                                   personalAllowance: personalAllowance)
+                                   personalAllowance: personalAllowance,
+                                   usdRate: usdRate)
 
                     TaxBandsReferenceCard()
                     NIBandsReferenceCard()
@@ -2470,6 +2563,7 @@ struct EntryModalView: View {
     @State private var attachments: [PDFAttachment] = []
     @State private var showFileImporter = false
     @State private var notesText: String = ""
+    @State private var vatRate: VATRate = .unspecified
 
     // Built-in expense categories. Identified by name (stable) — the UUID is just
     // for downstream Codable storage on Entry. SwiftUI Pickers select by name.
@@ -2586,6 +2680,11 @@ struct EntryModalView: View {
                             Text(d.label).tag(Duration?.some(d))
                         }
                     }
+                    Picker("VAT", selection: $vatRate) {
+                        ForEach(VATRate.allCases) { r in
+                            Text(r.label).tag(r)
+                        }
+                    }
                     if previewCommitment.shouldShow {
                         HStack {
                             Text("Total over term")
@@ -2674,7 +2773,8 @@ struct EntryModalView: View {
                         // last-generated marker so old cycles aren't re-spawned.
                         parentEntryId: entry?.parentEntryId,
                         lastGeneratedAt: entry?.lastGeneratedAt,
-                        notes: notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notesText
+                        notes: notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notesText,
+                        vatRate: vatRate == .unspecified ? nil : vatRate
                     )
                     onSave(newEntry)
                 }
@@ -2708,6 +2808,7 @@ struct EntryModalView: View {
                     currency = entry.resolvedCurrency
                     attachments = entry.attachments ?? []
                     notesText = entry.notes ?? ""
+                    vatRate = entry.vatRate ?? .unspecified
                 } else {
                     selectedCategoryName = categories.first?.name ?? ""
                     recurrence = .none
@@ -2715,6 +2816,7 @@ struct EntryModalView: View {
                     currency = .gbp
                     attachments = []
                     notesText = ""
+                    vatRate = .unspecified
                 }
             }
         }
