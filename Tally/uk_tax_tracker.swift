@@ -41,6 +41,12 @@ struct Entry: Identifiable, Codable, Equatable {
     /// Who the entry was paid to (expense) or received from (income).
     /// Free-text, indexed by search.
     var vendor: String?
+    /// Self-assessment deductibility. Defaults to true (allowable) when nil so
+    /// existing entries keep counting toward the deductible total.
+    var isAllowable: Bool?
+
+    /// Defaults to true for legacy entries that don't have the flag set.
+    var resolvedAllowable: Bool { isAllowable ?? true }
 
     /// VAT *included* in the gross `amount` if the user declared an explicit
     /// rate. Returns nil when no rate is set; the caller may then estimate.
@@ -2895,12 +2901,21 @@ struct SummaryView: View {
             .map { $0.totalAmountInGBP(usdRate: usdRate) }
             .reduce(0, +)
     }
+    /// All expenses, allowable or not.
     private var expenses: Double {
         entries.filter { $0.type == .expense }
             .map { $0.totalAmountInGBP(usdRate: usdRate) }
             .reduce(0, +)
     }
-    private var profit: Double { income - expenses }
+    /// Expenses that count toward taxable profit (`isAllowable` true / nil).
+    private var allowableExpenses: Double {
+        entries.filter { $0.type == .expense && $0.resolvedAllowable }
+            .map { $0.totalAmountInGBP(usdRate: usdRate) }
+            .reduce(0, +)
+    }
+    private var disallowableExpenses: Double { expenses - allowableExpenses }
+    /// Profit for tax purposes — only allowable expenses are deducted.
+    private var profit: Double { income - allowableExpenses }
     private var personalAllowance: Double {
         Double(parseTaxCode(taxCode) ?? 12570)
     }
@@ -2926,6 +2941,14 @@ struct SummaryView: View {
                                     value: fmt(expenses),
                                     accent: C.alert,
                                     style: .plain)
+                    }
+
+                    if disallowableExpenses > 0 {
+                        HStack(spacing: T.space2) {
+                            VATBreakdownChip(label: "Allowable",    amount: allowableExpenses,    color: C.sage)
+                            VATBreakdownChip(label: "Disallowable", amount: disallowableExpenses, color: C.mid)
+                        }
+                        .padding(.horizontal, T.space2)
                     }
 
                     SummaryCard(label: "Personal allowance",
@@ -2979,6 +3002,7 @@ struct EntryModalView: View {
     @State private var notesText: String = ""
     @State private var vatRate: VATRate = .unspecified
     @State private var vendorText: String = ""
+    @State private var isAllowable: Bool = true
 
     // Built-in expense categories. Identified by name (stable) — the UUID is just
     // for downstream Codable storage on Entry. SwiftUI Pickers select by name.
@@ -3113,6 +3137,9 @@ struct EntryModalView: View {
                             Text(r.label).tag(r)
                         }
                     }
+                    if selectedType == .expense {
+                        Toggle("Allowable for tax", isOn: $isAllowable)
+                    }
                     if previewCommitment.shouldShow {
                         HStack {
                             Text("Total over term")
@@ -3203,7 +3230,8 @@ struct EntryModalView: View {
                         lastGeneratedAt: entry?.lastGeneratedAt,
                         notes: notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notesText,
                         vatRate: vatRate == .unspecified ? nil : vatRate,
-                        vendor: vendorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : vendorText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        vendor: vendorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : vendorText.trimmingCharacters(in: .whitespacesAndNewlines),
+                        isAllowable: selectedType == .expense ? isAllowable : nil
                     )
                     onSave(newEntry)
                 }
@@ -3253,6 +3281,7 @@ struct EntryModalView: View {
                     notesText = entry.notes ?? ""
                     vatRate = entry.vatRate ?? .unspecified
                     vendorText = entry.vendor ?? ""
+                    isAllowable = entry.resolvedAllowable
                 } else {
                     selectedCategoryName = categories.first?.name ?? ""
                     recurrence = .none
@@ -3262,6 +3291,7 @@ struct EntryModalView: View {
                     notesText = ""
                     vatRate = .unspecified
                     vendorText = ""
+                    isAllowable = true
                 }
             }
         }
@@ -3977,6 +4007,11 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.17", date: "Jun 2026", bullets: [
+        "Allowable / disallowable toggle on expense entries (defaults to allowable)",
+        "Tax summary deducts only allowable expenses when computing taxable profit; income tax & NI estimates use the new profit",
+        "When disallowable expenses exist, the Expenses card sprouts an Allowable / Disallowable split below"
+    ]),
     .init(version: "0.16", date: "Jun 2026", bullets: [
         "\"New category…\" row inside the entry form's category picker — name it in the prompt and the new category is saved and selected without leaving the form"
     ]),
