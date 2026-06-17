@@ -11,6 +11,7 @@ import CryptoKit
 import UniformTypeIdentifiers
 import Charts
 import UserNotifications
+import PDFKit
 
 // MARK: - Models
 
@@ -1444,6 +1445,127 @@ enum ExchangeRateService {
     }
 }
 
+// MARK: - PDF Tax-year summary
+
+/// Renders an A4 portrait PDF summarising the active tax year — profile,
+/// income, expenses (split allowable/disallowable), VAT estimate, income
+/// tax + NI estimate, and the four MTD-IT quarters. Returns the file URL
+/// in the temp directory, ready to hand to ShareLink.
+enum TaxYearPDF {
+    static func build(taxYear: Int,
+                      profile: UserProfile,
+                      taxCode: String,
+                      entries: [Entry],
+                      usdRate: Double) -> URL? {
+        let income = entries.filter { $0.type == .income }
+            .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+        let allowable = entries.filter { $0.type == .expense && $0.resolvedAllowable }
+            .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+        let disallowable = entries.filter { $0.type == .expense && !$0.resolvedAllowable }
+            .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+        let profit = income - allowable
+        let pa = Double(parseTaxCode(taxCode) ?? 12_570)
+        let incomeTax = estimateIncomeTaxRefined(entries: entries,
+                                                 allowableExpenses: allowable,
+                                                 personalAllowance: pa,
+                                                 usdRate: usdRate)
+        let ni = estimateClass4NI(on: profit)
+
+        // A4 portrait at 72dpi = 595 x 842 pt.
+        let pageRect = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
+
+        let data = renderer.pdfData { ctx in
+            ctx.beginPage()
+            var y: CGFloat = 48
+
+            draw("Tally — Tax year \(taxYear)/\(taxYear + 1)",
+                 at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 22, weight: .bold))
+            y += 32
+            draw("Generated \(DateFormatter.localizedString(from: Date(), dateStyle: .long, timeStyle: .short))",
+                 at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 10), color: .gray)
+            y += 28
+
+            // Profile
+            draw("Profile", at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 14, weight: .semibold))
+            y += 18
+            for line in [
+                "Name: \(profile.name.isEmpty ? "—" : profile.name)",
+                "NI number: \(profile.niNumber.isEmpty ? "—" : profile.niNumber)",
+                "Tax code: \(taxCode)",
+                "Personal allowance: \(fmt(pa))"
+            ] {
+                draw(line, at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 11))
+                y += 16
+            }
+            y += 12
+
+            // Totals
+            draw("Year totals", at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 14, weight: .semibold))
+            y += 18
+            for row in [
+                ("Income",                 fmt(income)),
+                ("Allowable expenses",     fmt(allowable)),
+                ("Disallowable expenses",  fmt(disallowable)),
+                ("Taxable profit",         fmt(profit)),
+                ("Income Tax (est.)",      fmt(incomeTax)),
+                ("Class 4 NI (est.)",      fmt(ni))
+            ] {
+                drawRow(label: row.0, value: row.1, y: y)
+                y += 16
+            }
+            y += 12
+
+            // Quarters
+            draw("MTD-IT quarters", at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 14, weight: .semibold))
+            y += 18
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+            let yearStart = cal.date(from: DateComponents(year: taxYear, month: 4, day: 6)) ?? Date()
+            for i in 0..<4 {
+                guard let qStart = cal.date(byAdding: .month, value: i * 3, to: yearStart),
+                      let qEnd   = cal.date(byAdding: .month, value: (i + 1) * 3, to: yearStart) else { continue }
+                let qIncome = entries.filter { $0.type == .income && $0.date >= qStart && $0.date < qEnd }
+                    .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+                let qExp = entries.filter { $0.type == .expense && $0.resolvedAllowable && $0.date >= qStart && $0.date < qEnd }
+                    .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+                drawRow(label: "Q\(i+1) profit", value: fmt(qIncome - qExp), y: y)
+                y += 16
+            }
+            y += 16
+
+            draw("Estimates only. Tally does not file with HMRC.",
+                 at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 9), color: .gray)
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tally-tax-\(taxYear)-\(taxYear + 1).pdf")
+        do {
+            try data.write(to: url)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private static func draw(_ text: String, at point: CGPoint,
+                             font: UIFont, color: UIColor = .label) {
+        let attr: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        (text as NSString).draw(at: point, withAttributes: attr)
+    }
+
+    private static func drawRow(label: String, value: String, y: CGFloat) {
+        draw(label, at: CGPoint(x: 48, y: y), font: .systemFont(ofSize: 11))
+        let attr: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: UIColor.label
+        ]
+        let str = value as NSString
+        let size = str.size(withAttributes: attr)
+        str.draw(at: CGPoint(x: 595 - 48 - size.width, y: y), withAttributes: attr)
+    }
+}
+
 // MARK: - HMRC Deadline notifications
 
 /// Schedules (or cancels) UK self-assessment deadline reminders:
@@ -2021,6 +2143,7 @@ struct UkExpenseTrackerView: View {
                             usdRate: $usdRate,
                             usdRateUpdatedAt: $usdRateUpdatedAt,
                             entries: entries,
+                            taxYear: taxYear,
                             onLoadSampleData: loadSampleData,
                             loginManager: loginManager
                         )
@@ -3941,6 +4064,7 @@ struct SettingsView: View {
     @Binding var usdRate: Double
     @Binding var usdRateUpdatedAt: Double
     var entries: [Entry]
+    var taxYear: Int
     var onLoadSampleData: () -> Void
     @ObservedObject var loginManager: LoginManager
     @Environment(\.dismiss) private var dismiss
@@ -3987,6 +4111,19 @@ struct SettingsView: View {
         let stamp = DateFormatter.tallyExportStamp.string(from: Date())
         let filename = "tally-entries-\(stamp).csv"
         return try? EntryCSV.writeToTemp(csv: csv, filename: filename)
+    }
+
+    private var pdfURL: URL? {
+        var profile = UserProfile()
+        if !profileData.isEmpty,
+           let decoded = try? JSONDecoder().decode(UserProfile.self, from: profileData) {
+            profile = decoded
+        }
+        return TaxYearPDF.build(taxYear: taxYear,
+                                profile: profile,
+                                taxCode: taxCode,
+                                entries: entries,
+                                usdRate: usdRate)
     }
 
     private var personalAllowance: Int? {
@@ -4104,6 +4241,15 @@ struct SettingsView: View {
                         }
                     } else {
                         Label("Export entries as CSV", systemImage: "square.and.arrow.up")
+                            .foregroundColor(C.mid)
+                    }
+
+                    if let url = pdfURL {
+                        ShareLink(item: url, preview: SharePreview("Tally tax summary \(taxYear)/\(taxYear + 1)")) {
+                            Label("Export tax-year PDF", systemImage: "doc.richtext")
+                        }
+                    } else {
+                        Label("Export tax-year PDF", systemImage: "doc.richtext")
                             .foregroundColor(C.mid)
                     }
 
@@ -4322,6 +4468,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.22", date: "Jun 2026", bullets: [
+        "Tax-year PDF export — Settings → Data → \"Export tax-year PDF\" generates an A4 portrait summary (profile + tax code, year totals, income tax & NI estimates, MTD-IT quarterly profits) and hands it to the share sheet, ready to email an accountant"
+    ]),
     .init(version: "0.21", date: "Jun 2026", bullets: [
         "HMRC deadline reminders — toggle in Settings → Reminders schedules 30-day, 7-day and morning-of notifications for the 31 January balancing payment and the 31 July second payment on account",
         "Permission prompt is requested when the toggle flips on; denial bounces the toggle back to off so the UI never lies about what's scheduled"
