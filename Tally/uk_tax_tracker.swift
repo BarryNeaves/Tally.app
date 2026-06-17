@@ -10,6 +10,7 @@ import LocalAuthentication
 import CryptoKit
 import UniformTypeIdentifiers
 import Charts
+import UserNotifications
 
 // MARK: - Models
 
@@ -1439,6 +1440,92 @@ enum ExchangeRateService {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
             return nil
+        }
+    }
+}
+
+// MARK: - HMRC Deadline notifications
+
+/// Schedules (or cancels) UK self-assessment deadline reminders:
+///   - 31 January: balancing payment & online return
+///   - 31 July: second payment on account
+/// Three reminders per deadline: 30 days, 7 days, on the day.
+enum HMRCDeadlineNotifications {
+    static let categoryId = "tally.hmrc.deadline"
+
+    /// Requests notification permission (idempotent — system caches the prompt
+    /// state). Returns whether the app may post notifications.
+    static func requestAuthorisation() async -> Bool {
+        let centre = UNUserNotificationCenter.current()
+        do {
+            return try await centre.requestAuthorization(options: [.alert, .badge, .sound])
+        } catch {
+            return false
+        }
+    }
+
+    /// Wipes any previously-scheduled deadline reminders, then re-schedules
+    /// the next 12 months of deadlines.
+    static func reschedule(from referenceDate: Date = Date()) {
+        let centre = UNUserNotificationCenter.current()
+        centre.getPendingNotificationRequests { requests in
+            let ours = requests.filter { $0.identifier.hasPrefix("hmrc-") }.map(\.identifier)
+            centre.removePendingNotificationRequests(withIdentifiers: ours)
+
+            for date in upcomingDeadlines(after: referenceDate) {
+                schedule(for: date, label: deadlineLabel(date), centre: centre)
+            }
+        }
+    }
+
+    /// Removes every scheduled HMRC deadline reminder.
+    static func cancelAll() {
+        let centre = UNUserNotificationCenter.current()
+        centre.getPendingNotificationRequests { requests in
+            let ours = requests.filter { $0.identifier.hasPrefix("hmrc-") }.map(\.identifier)
+            centre.removePendingNotificationRequests(withIdentifiers: ours)
+        }
+    }
+
+    /// The next two deadlines (31 Jan and 31 Jul) after `from`.
+    private static func upcomingDeadlines(after from: Date) -> [Date] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+        let year = cal.component(.year, from: from)
+        let candidates = (year...(year + 1)).flatMap { y -> [Date] in
+            [cal.date(from: DateComponents(year: y, month: 1, day: 31, hour: 9))!,
+             cal.date(from: DateComponents(year: y, month: 7, day: 31, hour: 9))!]
+        }
+        return candidates.filter { $0 > from }.prefix(2).map { $0 }
+    }
+
+    private static func deadlineLabel(_ date: Date) -> String {
+        let cal = Calendar(identifier: .gregorian)
+        let m = cal.component(.month, from: date)
+        return m == 1 ? "Self-assessment balancing payment"
+                      : "Second payment on account"
+    }
+
+    private static func schedule(for deadline: Date, label: String,
+                                 centre: UNUserNotificationCenter) {
+        let offsets: [(days: Int, prefix: String)] = [
+            (-30, "30 days"),
+            (-7,  "7 days"),
+            (0,   "today")
+        ]
+        for offset in offsets {
+            guard let fireDate = Calendar.current.date(byAdding: .day, value: offset.days, to: deadline),
+                  fireDate > Date() else { continue }
+
+            let content = UNMutableNotificationContent()
+            content.title = label
+            content.body  = "HMRC deadline \(offset.prefix == "today" ? "is today" : "in \(offset.prefix)") (31 \(Calendar.current.component(.month, from: deadline) == 1 ? "Jan" : "Jul"))."
+            content.sound = .default
+
+            let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+            let id = "hmrc-\(ISO8601DateFormatter().string(from: deadline))-\(offset.prefix)"
+            centre.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
         }
     }
 }
@@ -3867,6 +3954,7 @@ struct SettingsView: View {
     @State private var isRefreshingRate = false
     @State private var showSampleConfirm = false
     @AppStorage("biometricEnabled") private var biometricEnabled: Bool = true
+    @AppStorage("hmrcDeadlineReminders") private var hmrcRemindersEnabled: Bool = false
 
     private var biometricToggleLabel: String {
         switch loginManager.availableBiometryType {
@@ -3985,6 +4073,17 @@ struct SettingsView: View {
                     Text("Custom categories")
                 } footer: {
                     Text("Added categories appear in the entry form picker alongside the built-in ones.")
+                }
+
+                Section {
+                    Toggle("HMRC deadline reminders", isOn: $hmrcRemindersEnabled)
+                        .onChange(of: hmrcRemindersEnabled) { _, newValue in
+                            handleHMRCToggle(newValue)
+                        }
+                } header: {
+                    Text("Reminders")
+                } footer: {
+                    Text("Notifies 30 days, 7 days, and on the morning of each self-assessment deadline: 31 January (balancing payment) and 31 July (second payment on account).")
                 }
 
                 Section {
@@ -4149,6 +4248,25 @@ struct SettingsView: View {
         dismiss()
     }
 
+    private func handleHMRCToggle(_ enabled: Bool) {
+        if enabled {
+            Task {
+                let granted = await HMRCDeadlineNotifications.requestAuthorisation()
+                await MainActor.run {
+                    if granted {
+                        HMRCDeadlineNotifications.reschedule()
+                    } else {
+                        // Permission denied — flip the toggle back off so the
+                        // UI doesn't lie about what's actually scheduled.
+                        hmrcRemindersEnabled = false
+                    }
+                }
+            }
+        } else {
+            HMRCDeadlineNotifications.cancelAll()
+        }
+    }
+
     private func refreshRate() {
         isRefreshingRate = true
         Task {
@@ -4204,6 +4322,10 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.21", date: "Jun 2026", bullets: [
+        "HMRC deadline reminders — toggle in Settings → Reminders schedules 30-day, 7-day and morning-of notifications for the 31 January balancing payment and the 31 July second payment on account",
+        "Permission prompt is requested when the toggle flips on; denial bounces the toggle back to off so the UI never lies about what's scheduled"
+    ]),
     .init(version: "0.20", date: "Jun 2026", bullets: [
         "MTD-IT quarterly view on the Tax summary — four cards covering Q1 6 Apr–5 Jul through Q4 6 Jan–5 Apr, each showing profit and the income − expenses figures behind it (allowable only)"
     ]),
