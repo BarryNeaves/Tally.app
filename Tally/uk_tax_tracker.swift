@@ -701,28 +701,23 @@ class LoginManager: ObservableObject {
     }
     
     func loginWithGoogle() {
-        // TODO: Integrate Google Sign-In SDK here
-        
-        let config = GIDConfiguration(clientID: Self.googleClientID)
-        
         // The presentingViewController is required for the sign-in flow.
-        // Since we are in SwiftUI, you may need to get the root view controller:
+        // Since we are in SwiftUI, walk the scene graph for the root VC.
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController else {
             print("RootViewController not found")
             return
         }
-        
+
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { signInResult, error in
             if let error = error {
                 print("Google Sign-In error: \(error.localizedDescription)")
                 return
             }
-            guard let user = signInResult?.user else {
+            guard signInResult?.user != nil else {
                 print("Google Sign-In user data not available")
                 return
             }
-            // Successful sign in
             DispatchQueue.main.async {
                 self.step = .authenticated
             }
@@ -1786,7 +1781,7 @@ enum EntryCSV {
         return header + rows.joined(separator: "\n") + "\n"
     }
 
-    private static func escape(_ field: String) -> String {
+    nonisolated private static func escape(_ field: String) -> String {
         if field.contains(",") || field.contains("\"") || field.contains("\n") {
             return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
@@ -2224,7 +2219,7 @@ struct UkExpenseTrackerView: View {
             amount: 0.0,
             type: .expense,
             category: Category(id: UUID(), name: "General", colorName: "primary"),
-            recurrence: .none,
+            recurrence: nil,
             duration: nil,
             attachments: nil
         )
@@ -3832,12 +3827,12 @@ struct VerifyEmailView: View {
                     Text("Verify your email")
                         .font(.displayLg)
                         .foregroundColor(C.ink)
-                    Text("Enter the 6-digit code we sent to ")
+                    // Markdown bold for the email; SwiftUI's Text + Text
+                    // concatenation is deprecated in iOS 26.
+                    Text("Enter the 6-digit code we sent to **\(loginManager.storedEmail)**")
                         .font(.bodyText)
                         .foregroundColor(C.mid)
-                    + Text(loginManager.storedEmail)
-                        .font(.system(size: T.textBase, weight: .semibold))
-                        .foregroundColor(C.ink)
+                        .tint(C.ink)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, T.space8)
