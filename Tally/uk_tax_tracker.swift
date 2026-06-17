@@ -1728,7 +1728,8 @@ struct UkExpenseTrackerView: View {
                                     onEdit: editEntry,
                                     onAddNew: addNewEntry,
                                     onDuplicate: duplicateEntry,
-                                    onDelete: deleteEntry
+                                    onDelete: deleteEntry,
+                                    onRefresh: refreshFromUser
                                 )
                             case 2:
                                 EntryListView(
@@ -1738,7 +1739,8 @@ struct UkExpenseTrackerView: View {
                                     onEdit: editEntry,
                                     onAddNew: addNewEntry,
                                     onDuplicate: duplicateEntry,
-                                    onDelete: deleteEntry
+                                    onDelete: deleteEntry,
+                                    onRefresh: refreshFromUser
                                 )
                             case 3:
                                 SummaryView(entries: entriesForSelectedYear, taxYear: taxYear, taxCode: taxCode, usdRate: usdRate)
@@ -1921,6 +1923,19 @@ struct UkExpenseTrackerView: View {
 
     /// Open a fresh draft pre-filled from `entry`. Attachments + auto-gen
     /// lineage are intentionally dropped so the duplicate is a true new entry.
+    /// Wired to the SwiftUI .refreshable modifier on EntryListView. Re-runs
+    /// recurring auto-gen + USD rate refresh so pulling down catches any
+    /// brand-new cycles or a stale FX figure.
+    @MainActor
+    private func refreshFromUser() async {
+        materialiseRecurringIfNeeded()
+        if let rate = await ExchangeRateService.latestUSDPerGBP(), rate > 0 {
+            usdRate = rate
+            usdRateUpdatedAt = Date().timeIntervalSince1970
+        }
+        Haptics.impact()
+    }
+
     private func loadSampleData() {
         let sample = SampleData.build(taxYear: taxYear)
         entries.append(contentsOf: sample)
@@ -2405,6 +2420,7 @@ struct EntryListView: View {
     var onAddNew: () -> Void
     var onDuplicate: ((Entry) -> Void)? = nil
     var onDelete: ((Entry) -> Void)? = nil
+    var onRefresh: (() async -> Void)? = nil
 
     @State private var searchText: String = ""
     @State private var selectedCategoryFilter: String? = nil
@@ -2539,6 +2555,9 @@ struct EntryListView: View {
                     prompt: "Search \(title.lowercased())")
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
+        .refreshable {
+            if let onRefresh { await onRefresh() }
+        }
     }
 }
 
@@ -3782,6 +3801,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.12", date: "Jun 2026", bullets: [
+        "Pull-to-refresh on Expenses + Income — re-runs the recurring auto-gen pass and refreshes the USD rate in one gesture"
+    ]),
     .init(version: "0.11", date: "Jun 2026", bullets: [
         "Haptic feedback throughout — success tap on save / sign-in / Face ID, light impact on duplicate / sign-out, warning on delete, error on bad verification code"
     ]),
