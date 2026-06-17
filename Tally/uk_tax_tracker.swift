@@ -2485,6 +2485,99 @@ private struct CategoryBreakdownChart: View {
     }
 }
 
+/// Quarterly view aligned to HMRC's MTD-IT obligations (mandatory from
+/// April 2026 for £50k+ self-employed). Four quarters per UK tax year:
+///   Q1: 6 Apr - 5 Jul
+///   Q2: 6 Jul - 5 Oct
+///   Q3: 6 Oct - 5 Jan
+///   Q4: 6 Jan - 5 Apr
+private struct MTDQuarterlyCard: View {
+    let entries: [Entry]
+    let taxYear: Int
+    let usdRate: Double
+
+    private struct Quarter: Identifiable {
+        let id = UUID()
+        let label: String
+        let dateRange: String
+        let income: Double
+        let expenses: Double
+        var profit: Double { income - expenses }
+    }
+
+    private var quarters: [Quarter] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+        let yearStart = cal.date(from: DateComponents(year: taxYear, month: 4, day: 6)) ?? Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM"
+
+        return (0..<4).compactMap { idx in
+            guard let qStart = cal.date(byAdding: .month, value: idx * 3, to: yearStart),
+                  let qEnd   = cal.date(byAdding: .month, value: (idx + 1) * 3, to: yearStart) else { return nil }
+            let lastDay = cal.date(byAdding: .day, value: -1, to: qEnd) ?? qEnd
+            let inQ = entries.filter { $0.date >= qStart && $0.date < qEnd }
+            let income = inQ.filter { $0.type == .income }
+                .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+            let expense = inQ.filter { $0.type == .expense && $0.resolvedAllowable }
+                .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+            return Quarter(
+                label: "Q\(idx + 1)",
+                dateRange: "\(formatter.string(from: qStart)) – \(formatter.string(from: lastDay))",
+                income: income,
+                expenses: expense
+            )
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space3) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("MTD-IT quarters")
+                    .font(.system(size: T.textMd, weight: .bold))
+                    .foregroundColor(C.ink)
+                Text("Self-employment cumulative totals")
+                    .font(.eyebrow)
+                    .foregroundColor(C.sage)
+            }
+            VStack(spacing: T.space3) {
+                ForEach(quarters) { q in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(q.label)
+                                .font(.system(size: T.textSm, weight: .bold))
+                                .foregroundColor(C.ink)
+                            Text(q.dateRange)
+                                .font(.system(size: T.textXs))
+                                .foregroundColor(C.mid)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(fmt(q.profit))
+                                .font(.system(size: T.textSm, weight: .bold, design: .monospaced))
+                                .foregroundColor(q.profit >= 0 ? C.sage : C.alert)
+                            Text("\(fmt(q.income)) − \(fmt(q.expenses))")
+                                .font(.system(size: T.textXs, design: .monospaced))
+                                .foregroundColor(C.mid)
+                        }
+                    }
+                }
+            }
+            Text("Allowable expenses only. From 6 April 2026 HMRC requires self-employed people earning over £50,000 to submit quarterly via Making Tax Digital for Income Tax.")
+                .font(.system(size: T.textXs))
+                .foregroundColor(C.mid)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(T.space5)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
 private struct TaxBandsReferenceCard: View {
     var body: some View {
         ReferenceCard(title: "UK Income Tax bands", subtitle: "2025/26 — England & NI") {
@@ -3052,6 +3145,8 @@ struct SummaryView: View {
                                    allowableExpenses: allowableExpenses,
                                    personalAllowance: personalAllowance,
                                    usdRate: usdRate)
+
+                    MTDQuarterlyCard(entries: entries, taxYear: taxYear, usdRate: usdRate)
 
                     TaxBandsReferenceCard()
                     NIBandsReferenceCard()
@@ -4109,6 +4204,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.20", date: "Jun 2026", bullets: [
+        "MTD-IT quarterly view on the Tax summary — four cards covering Q1 6 Apr–5 Jul through Q4 6 Jan–5 Apr, each showing profit and the income − expenses figures behind it (allowable only)"
+    ]),
     .init(version: "0.19", date: "Jun 2026", bullets: [
         "Refined Income Tax estimate that honours per-entry income types",
         "PAYE income excluded (treated as taxed at source)",
