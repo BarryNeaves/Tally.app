@@ -2021,6 +2021,7 @@ struct UkExpenseTrackerView: View {
                             switch selectedTab {
                             case 0:
                                 DashboardView(entries: entriesForSelectedYear,
+                                              allEntries: entries,
                                               taxYear: taxYear,
                                               usdRate: usdRate,
                                               onEditEntry: editEntry)
@@ -2316,7 +2317,8 @@ struct UkExpenseTrackerView: View {
 // MARK: - Child Views
 
 struct DashboardView: View {
-    var entries: [Entry]
+    var entries: [Entry]      // already filtered to the active tax year
+    var allEntries: [Entry]   // unfiltered — feeds year-over-year comparisons
     var taxYear: Int
     var usdRate: Double
     var onEditEntry: ((Entry) -> Void)? = nil
@@ -2360,6 +2362,9 @@ struct DashboardView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, T.space6)
                     } else {
+                        ComparisonCardsRow(allEntries: allEntries,
+                                           taxYear: taxYear,
+                                           usdRate: usdRate)
                         RecentEntriesCard(entries: entries,
                                           usdRate: usdRate,
                                           onEdit: onEditEntry)
@@ -2559,6 +2564,117 @@ private struct RecentEntriesCard: View {
                 .stroke(C.rule, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+    }
+}
+
+/// Two side-by-side comparison cards:
+///   "This month vs last month" of profit (calendar-month basis)
+///   "This year vs last year" of profit (UK tax-year basis)
+private struct ComparisonCardsRow: View {
+    let allEntries: [Entry]
+    let taxYear: Int
+    let usdRate: Double
+
+    fileprivate struct Comparison {
+        let current: Double
+        let previous: Double
+
+        var delta: Double { current - previous }
+        var pct: Double? {
+            guard previous != 0 else { return nil }
+            return (current - previous) / abs(previous)
+        }
+    }
+
+    private var cal: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Europe/London") ?? .current
+        return c
+    }
+
+    private func profit(in range: ClosedRange<Date>) -> Double {
+        let inRange = allEntries.filter { range.contains($0.date) }
+        let inc = inRange.filter { $0.type == .income  }
+            .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+        let exp = inRange.filter { $0.type == .expense && $0.resolvedAllowable }
+            .reduce(0) { $0 + $1.totalAmountInGBP(usdRate: usdRate) }
+        return inc - exp
+    }
+
+    private var monthComparison: Comparison {
+        let now = Date()
+        guard let curStart = cal.dateInterval(of: .month, for: now)?.start,
+              let curEnd   = cal.date(byAdding: .month, value: 1, to: curStart),
+              let prevStart = cal.date(byAdding: .month, value: -1, to: curStart) else {
+            return Comparison(current: 0, previous: 0)
+        }
+        let curRange  = curStart...cal.date(byAdding: .second, value: -1, to: curEnd)!
+        let prevRange = prevStart...cal.date(byAdding: .second, value: -1, to: curStart)!
+        return Comparison(current: profit(in: curRange),
+                          previous: profit(in: prevRange))
+    }
+
+    private var yearComparison: Comparison {
+        guard let curStart = cal.date(from: DateComponents(year: taxYear, month: 4, day: 6)),
+              let curEnd   = cal.date(from: DateComponents(year: taxYear + 1, month: 4, day: 6)),
+              let prevStart = cal.date(from: DateComponents(year: taxYear - 1, month: 4, day: 6)) else {
+            return Comparison(current: 0, previous: 0)
+        }
+        let curRange  = curStart...cal.date(byAdding: .second, value: -1, to: curEnd)!
+        let prevRange = prevStart...cal.date(byAdding: .second, value: -1, to: curStart)!
+        return Comparison(current: profit(in: curRange),
+                          previous: profit(in: prevRange))
+    }
+
+    var body: some View {
+        HStack(spacing: T.space4) {
+            ComparisonCard(label: "vs last month", comparison: monthComparison)
+            ComparisonCard(label: "vs last year",  comparison: yearComparison)
+        }
+    }
+
+    fileprivate struct ComparisonCard: View {
+        let label: String
+        let comparison: Comparison
+
+        private var arrow: String {
+            comparison.delta >= 0 ? "arrow.up.right" : "arrow.down.right"
+        }
+        private var accent: Color {
+            comparison.delta >= 0 ? C.sage : C.alert
+        }
+        private var pctText: String {
+            guard let pct = comparison.pct else { return "n/a" }
+            return String(format: "%+.0f%%", pct * 100)
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: T.space2) {
+                Text(label)
+                    .font(.eyebrow)
+                    .foregroundColor(C.mid)
+                Text(fmt(comparison.current))
+                    .font(.system(size: T.textLg, weight: .heavy))
+                    .foregroundColor(C.ink)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: arrow)
+                        .font(.caption.weight(.bold))
+                    Text(pctText)
+                        .font(.system(size: T.textXs, weight: .bold, design: .monospaced))
+                }
+                .foregroundColor(accent)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(T.space4)
+            .background(C.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                    .stroke(C.rule, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
+        }
     }
 }
 
@@ -4463,6 +4579,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.23", date: "Jun 2026", bullets: [
+        "Comparison cards on Dashboard — \"vs last month\" (calendar) and \"vs last year\" (UK tax year) show this period's profit with the % change vs the previous one, arrow-tinted sage for positive and alert red for negative"
+    ]),
     .init(version: "0.22", date: "Jun 2026", bullets: [
         "Tax-year PDF export — Settings → Data → \"Export tax-year PDF\" generates an A4 portrait summary (profile + tax code, year totals, income tax & NI estimates, MTD-IT quarterly profits) and hands it to the share sheet, ready to email an accountant"
     ]),
