@@ -38,6 +38,9 @@ struct Entry: Identifiable, Codable, Equatable {
     /// Explicit VAT rate on this entry. Nil / .unspecified means no detail —
     /// the Tax Summary falls back to a 20% estimate for those entries.
     var vatRate: VATRate?
+    /// Who the entry was paid to (expense) or received from (income).
+    /// Free-text, indexed by search.
+    var vendor: String?
 
     /// VAT *included* in the gross `amount` if the user declared an explicit
     /// rate. Returns nil when no rate is set; the caller may then estimate.
@@ -1490,7 +1493,8 @@ enum SampleData {
                               currency: Currency,
                               recurrence: Recurrence? = nil,
                               duration: Duration? = nil,
-                              vat: VATRate? = nil) -> Entry {
+                              vat: VATRate? = nil,
+                              vendor: String? = nil) -> Entry {
         Entry(
             id: UUID(),
             date: date,
@@ -1505,7 +1509,8 @@ enum SampleData {
             parentEntryId: nil,
             lastGeneratedAt: nil,
             notes: nil,
-            vatRate: vat
+            vatRate: vat,
+            vendor: vendor
         )
     }
 }
@@ -2499,7 +2504,7 @@ struct EntryListView: View {
         return entries.filter { e in
             if let cat = selectedCategoryFilter, e.category.name != cat { return false }
             if !q.isEmpty {
-                let hay = "\(e.description) \(e.category.name)".lowercased()
+                let hay = "\(e.description) \(e.category.name) \(e.vendor ?? "")".lowercased()
                 if !hay.contains(q) { return false }
             }
             return true
@@ -2708,7 +2713,8 @@ private struct EntryRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Top line: description ⇄ amount (single line, both truncate gracefully)
                 HStack(alignment: .firstTextBaseline, spacing: T.space2) {
-                    Text(entry.description.isEmpty ? entry.category.name : entry.description)
+                    Text(entry.vendor
+                         ?? (entry.description.isEmpty ? entry.category.name : entry.description))
                         .font(.system(size: T.textSm, weight: .semibold))
                         .foregroundColor(C.ink)
                         .lineLimit(1)
@@ -2891,6 +2897,7 @@ struct EntryModalView: View {
     @State private var showFileImporter = false
     @State private var notesText: String = ""
     @State private var vatRate: VATRate = .unspecified
+    @State private var vendorText: String = ""
 
     // Built-in expense categories. Identified by name (stable) — the UUID is just
     // for downstream Codable storage on Entry. SwiftUI Pickers select by name.
@@ -2950,6 +2957,10 @@ struct EntryModalView: View {
         NavigationView {
             Form {
                 Section(header: Text("Details")) {
+                    TextField(selectedType == .income ? "Payer (e.g. Acme Ltd)" : "Vendor (e.g. Cloudflare)",
+                              text: $vendorText)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
                     TextField("Description", text: $descriptionText)
                     HStack {
                         Text(currency.symbol)
@@ -3101,7 +3112,8 @@ struct EntryModalView: View {
                         parentEntryId: entry?.parentEntryId,
                         lastGeneratedAt: entry?.lastGeneratedAt,
                         notes: notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notesText,
-                        vatRate: vatRate == .unspecified ? nil : vatRate
+                        vatRate: vatRate == .unspecified ? nil : vatRate,
+                        vendor: vendorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : vendorText.trimmingCharacters(in: .whitespacesAndNewlines)
                     )
                     onSave(newEntry)
                 }
@@ -3136,6 +3148,7 @@ struct EntryModalView: View {
                     attachments = entry.attachments ?? []
                     notesText = entry.notes ?? ""
                     vatRate = entry.vatRate ?? .unspecified
+                    vendorText = entry.vendor ?? ""
                 } else {
                     selectedCategoryName = categories.first?.name ?? ""
                     recurrence = .none
@@ -3144,6 +3157,7 @@ struct EntryModalView: View {
                     attachments = []
                     notesText = ""
                     vatRate = .unspecified
+                    vendorText = ""
                 }
             }
         }
@@ -3859,6 +3873,11 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.14", date: "Jun 2026", bullets: [
+        "Vendor / Payer field on entries — separate from description, label flips with entry type (\"Vendor\" for expense, \"Payer\" for income)",
+        "Search now matches vendor as well as description and category",
+        "Entry rows show the vendor as the primary line when set, with description as the meta"
+    ]),
     .init(version: "0.13", date: "Jun 2026", bullets: [
         "Recent activity card on the Dashboard — last 5 entries, tap to edit"
     ]),
