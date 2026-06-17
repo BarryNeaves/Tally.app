@@ -1719,7 +1719,10 @@ struct UkExpenseTrackerView: View {
                         Group {
                             switch selectedTab {
                             case 0:
-                                DashboardView(entries: entriesForSelectedYear, taxYear: taxYear, usdRate: usdRate)
+                                DashboardView(entries: entriesForSelectedYear,
+                                              taxYear: taxYear,
+                                              usdRate: usdRate,
+                                              onEditEntry: editEntry)
                             case 1:
                                 EntryListView(
                                     entries: entriesForSelectedYear.filter { $0.type == .expense },
@@ -1999,6 +2002,7 @@ struct DashboardView: View {
     var entries: [Entry]
     var taxYear: Int
     var usdRate: Double
+    var onEditEntry: ((Entry) -> Void)? = nil
 
     private var totalIncome: Double {
         entries.filter { $0.type == .income }
@@ -2039,6 +2043,9 @@ struct DashboardView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, T.space6)
                     } else {
+                        RecentEntriesCard(entries: entries,
+                                          usdRate: usdRate,
+                                          onEdit: onEditEntry)
                         MonthlyProfitChart(entries: entries,
                                            taxYear: taxYear,
                                            usdRate: usdRate)
@@ -2180,6 +2187,57 @@ private struct VATBreakdownChip: View {
                 .foregroundColor(color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Up to 5 most recent entries (any type) for the active tax year, in a
+/// compact card. Tapping a row opens it in the entry-edit sheet.
+private struct RecentEntriesCard: View {
+    let entries: [Entry]
+    let usdRate: Double
+    var onEdit: ((Entry) -> Void)?
+
+    private var recent: [Entry] {
+        Array(entries.sorted { $0.date > $1.date }.prefix(5))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: T.space3) {
+            HStack {
+                Text("Recent activity")
+                    .font(.eyebrow)
+                    .foregroundColor(C.mid)
+                Spacer()
+            }
+            VStack(spacing: T.space2) {
+                ForEach(recent) { entry in
+                    HStack(spacing: T.space3) {
+                        Text(shortDate(entry.date))
+                            .font(.system(size: T.textXs, weight: .semibold, design: .monospaced))
+                            .foregroundColor(C.mid)
+                            .frame(width: 64, alignment: .leading)
+                        Text(entry.description.isEmpty ? entry.category.name : entry.description)
+                            .font(.system(size: T.textSm))
+                            .foregroundColor(C.ink)
+                            .lineLimit(1)
+                        Spacer(minLength: T.space2)
+                        Text((entry.type == .expense ? "−" : "+") +
+                             fmt(entry.amount, currency: entry.resolvedCurrency))
+                            .font(.system(size: T.textSm, weight: .bold))
+                            .foregroundColor(entry.type == .expense ? C.alert : C.sageLight)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { onEdit?(entry) }
+                }
+            }
+        }
+        .padding(T.space5)
+        .background(C.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous)
+                .stroke(C.rule, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: T.radiusLg, style: .continuous))
     }
 }
 
@@ -3801,6 +3859,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.13", date: "Jun 2026", bullets: [
+        "Recent activity card on the Dashboard — last 5 entries, tap to edit"
+    ]),
     .init(version: "0.12", date: "Jun 2026", bullets: [
         "Pull-to-refresh on Expenses + Income — re-runs the recurring auto-gen pass and refreshes the USD rate in one gesture"
     ]),
