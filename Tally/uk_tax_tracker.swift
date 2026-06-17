@@ -1825,7 +1825,12 @@ struct UkExpenseTrackerView: View {
                         refreshExchangeRateIfStale()
                     }
                     .sheet(isPresented: $showEntryModal) {
-                        EntryModalView(entry: $editingEntry, usdRate: usdRate, customCategoryNames: customCategoryNames, onSave: saveEntry, onCancel: cancelEntry)
+                        EntryModalView(entry: $editingEntry,
+                                       usdRate: usdRate,
+                                       customCategoryNames: customCategoryNames,
+                                       onSave: saveEntry,
+                                       onCancel: cancelEntry,
+                                       onAddCustomCategory: addCustomCategory)
                     }
                     .sheet(isPresented: $showSettings) {
                         SettingsView(
@@ -1931,6 +1936,16 @@ struct UkExpenseTrackerView: View {
 
     /// Open a fresh draft pre-filled from `entry`. Attachments + auto-gen
     /// lineage are intentionally dropped so the duplicate is a true new entry.
+    /// Persists a user-created category name. No-op if it's already in the list.
+    private func addCustomCategory(_ name: String) {
+        var list = customCategoryNames
+        guard !list.contains(name) else { return }
+        list.append(name)
+        if let data = try? JSONEncoder().encode(list) {
+            customCategoriesData = data
+        }
+    }
+
     /// Wired to the SwiftUI .refreshable modifier on EntryListView. Re-runs
     /// recurring auto-gen + USD rate refresh so pulling down catches any
     /// brand-new cycles or a stale FX figure.
@@ -2947,6 +2962,10 @@ struct EntryModalView: View {
     var customCategoryNames: [String] = []
     var onSave: (Entry) -> Void
     var onCancel: () -> Void
+    var onAddCustomCategory: ((String) -> Void)? = nil
+
+    @State private var showNewCategoryPrompt = false
+    @State private var newCategoryDraft: String = ""
 
     @State private var descriptionText: String = ""
     @State private var amountText: String = ""
@@ -3069,6 +3088,15 @@ struct EntryModalView: View {
                             Text(category.name).tag(category.name)
                         }
                     }
+                    if onAddCustomCategory != nil {
+                        Button {
+                            newCategoryDraft = ""
+                            showNewCategoryPrompt = true
+                        } label: {
+                            Label("New category…", systemImage: "plus.circle")
+                                .foregroundColor(C.sage)
+                        }
+                    }
                     Picker("Recurrence", selection: $recurrence) {
                         ForEach(Recurrence.allCases, id: \.self) { rec in
                             Text(rec.label).tag(rec)
@@ -3181,6 +3209,20 @@ struct EntryModalView: View {
                 }
                 .disabled(descriptionText.isEmpty || amountAsDouble == nil || selectedCategoryName.isEmpty)
             )
+            .alert("New category", isPresented: $showNewCategoryPrompt) {
+                TextField("Name", text: $newCategoryDraft)
+                    .textInputAutocapitalization(.words)
+                Button("Cancel", role: .cancel) {}
+                Button("Add") {
+                    let trimmed = newCategoryDraft.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty else { return }
+                    onAddCustomCategory?(trimmed)
+                    selectedCategoryName = trimmed
+                    Haptics.success()
+                }
+            } message: {
+                Text("Added to your custom categories. Appears in the picker straight away.")
+            }
             .fileImporter(
                 isPresented: $showFileImporter,
                 allowedContentTypes: [.pdf],
@@ -3935,6 +3977,9 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.16", date: "Jun 2026", bullets: [
+        "\"New category…\" row inside the entry form's category picker — name it in the prompt and the new category is saved and selected without leaving the form"
+    ]),
     .init(version: "0.15", date: "Jun 2026", bullets: [
         "Today / This week / This month / All quick chips above the category chips on the entry lists",
         "Date-range filter stacks with the category chip + search box — Clear filters wipes all three"
