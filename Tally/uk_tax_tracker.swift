@@ -48,6 +48,11 @@ struct Entry: Identifiable, Codable, Equatable {
     /// Defaults to true for legacy entries that don't have the flag set.
     var resolvedAllowable: Bool { isAllowable ?? true }
 
+    /// Income category — only meaningful when type == .income. Defaults to
+    /// `.freelance` for legacy entries via `resolvedIncomeType`.
+    var incomeType: IncomeType?
+    var resolvedIncomeType: IncomeType { incomeType ?? .freelance }
+
     /// VAT *included* in the gross `amount` if the user declared an explicit
     /// rate. Returns nil when no rate is set; the caller may then estimate.
     var explicitVATIncluded: Double? {
@@ -291,6 +296,21 @@ func autoGenerateRecurring(entries: inout [Entry], now: Date = Date()) -> Int {
         entries.sort { $0.date < $1.date }
     }
     return newChildren.count
+}
+
+/// Category of income for tax purposes. Drives a refined Income Tax estimate
+/// in the next iteration — PAYE is already taxed at source, dividends follow
+/// their own bands, savings interest uses the personal savings allowance.
+enum IncomeType: String, Codable, CaseIterable, Identifiable {
+    case freelance  = "Freelance / self-employed"
+    case paye       = "Salary (PAYE)"
+    case dividend   = "Dividend"
+    case rental     = "Rental"
+    case interest   = "Savings interest"
+    case other      = "Other"
+
+    var id: String { rawValue }
+    var label: String { rawValue }
 }
 
 /// UK VAT rate applied to an entry. `unspecified` means the user hasn't
@@ -3003,6 +3023,7 @@ struct EntryModalView: View {
     @State private var vatRate: VATRate = .unspecified
     @State private var vendorText: String = ""
     @State private var isAllowable: Bool = true
+    @State private var incomeType: IncomeType = .freelance
 
     // Built-in expense categories. Identified by name (stable) — the UUID is just
     // for downstream Codable storage on Entry. SwiftUI Pickers select by name.
@@ -3140,6 +3161,13 @@ struct EntryModalView: View {
                     if selectedType == .expense {
                         Toggle("Allowable for tax", isOn: $isAllowable)
                     }
+                    if selectedType == .income {
+                        Picker("Income type", selection: $incomeType) {
+                            ForEach(IncomeType.allCases) { t in
+                                Text(t.label).tag(t)
+                            }
+                        }
+                    }
                     if previewCommitment.shouldShow {
                         HStack {
                             Text("Total over term")
@@ -3231,7 +3259,8 @@ struct EntryModalView: View {
                         notes: notesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notesText,
                         vatRate: vatRate == .unspecified ? nil : vatRate,
                         vendor: vendorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : vendorText.trimmingCharacters(in: .whitespacesAndNewlines),
-                        isAllowable: selectedType == .expense ? isAllowable : nil
+                        isAllowable: selectedType == .expense ? isAllowable : nil,
+                        incomeType: selectedType == .income ? incomeType : nil
                     )
                     onSave(newEntry)
                 }
@@ -3282,6 +3311,7 @@ struct EntryModalView: View {
                     vatRate = entry.vatRate ?? .unspecified
                     vendorText = entry.vendor ?? ""
                     isAllowable = entry.resolvedAllowable
+                    incomeType = entry.resolvedIncomeType
                 } else {
                     selectedCategoryName = categories.first?.name ?? ""
                     recurrence = .none
@@ -3292,6 +3322,7 @@ struct EntryModalView: View {
                     vatRate = .unspecified
                     vendorText = ""
                     isAllowable = true
+                    incomeType = .freelance
                 }
             }
         }
@@ -4007,6 +4038,10 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.18", date: "Jun 2026", bullets: [
+        "Income type on income entries — Freelance, PAYE, Dividend, Rental, Savings interest, Other (defaults to Freelance for existing entries)",
+        "Sets the stage for a refined Income Tax estimate that honours PAYE-already-taxed and dividend bands (next release)"
+    ]),
     .init(version: "0.17", date: "Jun 2026", bullets: [
         "Allowable / disallowable toggle on expense entries (defaults to allowable)",
         "Tax summary deducts only allowable expenses when computing taxable profit; income tax & NI estimates use the new profit",
