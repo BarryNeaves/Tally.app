@@ -2475,6 +2475,26 @@ private struct ReferenceRow: View {
     }
 }
 
+/// Quick-pick date window applied on top of the active tax year.
+enum DateRangeFilter: String, CaseIterable, Identifiable {
+    case all   = "All"
+    case today = "Today"
+    case week  = "This week"
+    case month = "This month"
+
+    var id: String { rawValue }
+
+    func matches(_ date: Date, now: Date = Date()) -> Bool {
+        let cal = Calendar.current
+        switch self {
+        case .all:   return true
+        case .today: return cal.isDateInToday(date)
+        case .week:  return cal.isDate(date, equalTo: now, toGranularity: .weekOfYear)
+        case .month: return cal.isDate(date, equalTo: now, toGranularity: .month)
+        }
+    }
+}
+
 struct EntryListView: View {
     var entries: [Entry]
     var title: String
@@ -2487,6 +2507,7 @@ struct EntryListView: View {
 
     @State private var searchText: String = ""
     @State private var selectedCategoryFilter: String? = nil
+    @State private var dateRange: DateRangeFilter = .all
 
     /// Categories present in the current set, sorted by frequency desc then name.
     private var visibleCategories: [String] {
@@ -2498,10 +2519,11 @@ struct EntryListView: View {
         }
     }
 
-    /// Entries after applying search + category chip.
+    /// Entries after applying date range + search + category chip.
     private var filteredEntries: [Entry] {
         let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
         return entries.filter { e in
+            if !dateRange.matches(e.date) { return false }
             if let cat = selectedCategoryFilter, e.category.name != cat { return false }
             if !q.isEmpty {
                 let hay = "\(e.description) \(e.category.name) \(e.vendor ?? "")".lowercased()
@@ -2521,7 +2543,7 @@ struct EntryListView: View {
     }
 
     private var hasActiveFilter: Bool {
-        !searchText.isEmpty || selectedCategoryFilter != nil
+        !searchText.isEmpty || selectedCategoryFilter != nil || dateRange != .all
     }
 
     var body: some View {
@@ -2529,6 +2551,14 @@ struct EntryListView: View {
             Section {
                 TallyPageHeader(title: title, subtitle: subtitle)
                     .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+
+            Section {
+                DateRangeChips(selected: $dateRange)
+                    .listRowInsets(EdgeInsets(top: 0, leading: T.space6,
+                                              bottom: T.space2, trailing: T.space6))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
@@ -2558,6 +2588,7 @@ struct EntryListView: View {
                             Button("Clear filters") {
                                 searchText = ""
                                 selectedCategoryFilter = nil
+                                dateRange = .all
                             }
                             .font(.system(size: T.textSm, weight: .semibold))
                             .foregroundColor(C.sage)
@@ -2663,6 +2694,37 @@ private struct CategoryFilterChips: View {
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+        }
+    }
+}
+
+/// Today / This week / This month / All quick-pick chips. Visual style
+/// matches CategoryFilterChips.
+private struct DateRangeChips: View {
+    @Binding var selected: DateRangeFilter
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: T.space2) {
+                ForEach(DateRangeFilter.allCases) { range in
+                    Button {
+                        selected = range
+                    } label: {
+                        Text(range.rawValue)
+                            .font(.system(size: T.textXs, weight: .bold))
+                            .foregroundColor(selected == range ? .white : C.sage)
+                            .padding(.horizontal, T.space3)
+                            .padding(.vertical, 6)
+                            .background(selected == range ? C.sage : C.sagePale)
+                            .overlay(
+                                Capsule().stroke(selected == range ? C.sage : C.mint, lineWidth: 1)
+                            )
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, T.space1)
         }
     }
 }
@@ -3873,6 +3935,10 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.15", date: "Jun 2026", bullets: [
+        "Today / This week / This month / All quick chips above the category chips on the entry lists",
+        "Date-range filter stacks with the category chip + search box — Clear filters wipes all three"
+    ]),
     .init(version: "0.14", date: "Jun 2026", bullets: [
         "Vendor / Payer field on entries — separate from description, label flips with entry type (\"Vendor\" for expense, \"Payer\" for income)",
         "Search now matches vendor as well as description and category",
