@@ -1659,6 +1659,72 @@ func estimateIncomeTax(on profit: Double, personalAllowance: Double) -> Double {
     return inBasic * 0.20 + inHigher * 0.40 + inAdditional * 0.45
 }
 
+/// 2025/26 dividend allowance and rates.
+let ukDividendAllowance2025_26: Double = 500
+let ukDividendBasic = 0.0875
+let ukDividendHigher = 0.3375
+let ukDividendAdditional = 0.3935
+
+/// Personal Savings Allowance — depends on band but use the basic-rate £1,000
+/// for the estimate. Refine when we add band-stacking later.
+let ukSavingsAllowance2025_26: Double = 1_000
+
+/// Refined Income Tax estimate that:
+///   - Excludes PAYE-already-taxed income entirely (treats as tax paid at source)
+///   - Sums freelance + rental as ordinary income against bands
+///   - Applies dividend allowance + dividend bands on top of ordinary income
+///   - Applies savings allowance to interest, then ordinary rates
+///   - Self-assessment context: returns the *additional* tax owed via SA
+func estimateIncomeTaxRefined(entries: [Entry],
+                              allowableExpenses: Double,
+                              personalAllowance pa: Double,
+                              usdRate: Double) -> Double {
+    var ordinary: Double = 0   // freelance, rental, other
+    var dividends: Double = 0
+    var interest: Double = 0
+
+    for e in entries where e.type == .income {
+        let gbp = e.totalAmountInGBP(usdRate: usdRate)
+        switch e.resolvedIncomeType {
+        case .paye:       continue        // already taxed via PAYE
+        case .dividend:   dividends += gbp
+        case .interest:   interest  += gbp
+        case .freelance, .rental, .other:
+            ordinary += gbp
+        }
+    }
+
+    // Ordinary income: freelance + rental + other, less allowable expenses
+    let ordinaryProfit = max(ordinary - allowableExpenses, 0)
+    let ordinaryTax = estimateIncomeTax(on: ordinaryProfit, personalAllowance: pa)
+
+    // Savings interest: ignore up to £1,000 (basic-rate PSA), then ordinary rates
+    let taxableInterest = max(interest - ukSavingsAllowance2025_26, 0)
+    let interestTax = estimateIncomeTax(on: ordinaryProfit + taxableInterest,
+                                        personalAllowance: pa) - ordinaryTax
+
+    // Dividends: £500 allowance, then dividend bands. We stack on top of
+    // ordinary income — band thresholds are absolute (basic ends 50,270 etc).
+    let taxableDividends = max(dividends - ukDividendAllowance2025_26, 0)
+    let base = ordinaryProfit + taxableInterest
+    let basicCap: Double = 50_270
+    let higherCap: Double = 125_140
+
+    let divInBasic      = max(min(base + taxableDividends, basicCap)  - max(base, basicCap == 0 ? 0 : basicCap), 0)
+    // Re-compute more carefully band-by-band:
+    let remainingBasic  = max(basicCap  - base, 0)
+    let remainingHigher = max(higherCap - max(base, basicCap), 0)
+    let divBasic      = min(taxableDividends, remainingBasic)
+    let divHigher     = min(max(taxableDividends - divBasic, 0), remainingHigher)
+    let divAdditional = max(taxableDividends - divBasic - divHigher, 0)
+    _ = divInBasic  // unused (kept for clarity above)
+    let dividendTax = divBasic * ukDividendBasic
+                    + divHigher * ukDividendHigher
+                    + divAdditional * ukDividendAdditional
+
+    return ordinaryTax + max(interestTax, 0) + dividendTax
+}
+
 /// Estimated Class 4 National Insurance owed on a self-employed profit,
 /// 2025/26 bands (6% main, 2% upper).
 func estimateClass4NI(on profit: Double) -> Double {
@@ -2158,6 +2224,7 @@ private struct EstimatesGroup: View {
     let entries: [Entry]
     let profit: Double
     let expenses: Double
+    let allowableExpenses: Double
     let personalAllowance: Double
     let usdRate: Double
 
@@ -2199,8 +2266,11 @@ private struct EstimatesGroup: View {
                 .padding(.horizontal, T.space2)
             }
             SummaryCard(
-                label: "Income Tax due (est.)",
-                value: fmt(estimateIncomeTax(on: profit, personalAllowance: personalAllowance)),
+                label: "Income Tax due (est., excludes PAYE)",
+                value: fmt(estimateIncomeTaxRefined(entries: entries,
+                                                    allowableExpenses: allowableExpenses,
+                                                    personalAllowance: personalAllowance,
+                                                    usdRate: usdRate)),
                 accent: C.alert,
                 style: .plain
             )
@@ -2210,7 +2280,7 @@ private struct EstimatesGroup: View {
                 accent: C.sage,
                 style: .plain
             )
-            Text("Set a VAT rate on each entry to make the VAT total exact. Expenses left as Unspecified are assumed to include 20% VAT. Income Tax + NI estimates assume self-employed status; PA from the tax code in Settings.")
+            Text("Income Tax: PAYE entries excluded (already taxed at source). Dividends apply the £500 allowance then 8.75/33.75/39.35%. Savings interest gets the £1,000 PSA. VAT: Unspecified expenses assumed 20% included; pick a rate per entry to make it exact. NI: Class 4 on freelance/rental profit.")
                 .font(.system(size: T.textXs))
                 .foregroundColor(C.mid)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2979,6 +3049,7 @@ struct SummaryView: View {
                     EstimatesGroup(entries: entries,
                                    profit: profit,
                                    expenses: expenses,
+                                   allowableExpenses: allowableExpenses,
                                    personalAllowance: personalAllowance,
                                    usdRate: usdRate)
 
@@ -4038,9 +4109,15 @@ private struct ReleaseNote: Identifiable {
 }
 
 private let releaseNotes: [ReleaseNote] = [
+    .init(version: "0.19", date: "Jun 2026", bullets: [
+        "Refined Income Tax estimate that honours per-entry income types",
+        "PAYE income excluded (treated as taxed at source)",
+        "Dividends use the 2025/26 £500 allowance and 8.75% / 33.75% / 39.35% bands, stacked on top of ordinary income",
+        "Savings interest uses the £1,000 Personal Savings Allowance then ordinary rates",
+        "Freelance + rental + other income still routes through the standard SA bands"
+    ]),
     .init(version: "0.18", date: "Jun 2026", bullets: [
-        "Income type on income entries — Freelance, PAYE, Dividend, Rental, Savings interest, Other (defaults to Freelance for existing entries)",
-        "Sets the stage for a refined Income Tax estimate that honours PAYE-already-taxed and dividend bands (next release)"
+        "Income type on income entries — Freelance, PAYE, Dividend, Rental, Savings interest, Other (defaults to Freelance for existing entries)"
     ]),
     .init(version: "0.17", date: "Jun 2026", bullets: [
         "Allowable / disallowable toggle on expense entries (defaults to allowable)",
